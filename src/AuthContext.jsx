@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { supabaseAuth, supabase } from './supabase'
+import { addLog } from './Logs'
 
 const AuthContext = createContext(null)
 
@@ -81,10 +82,16 @@ export function AuthProvider({ children }) {
     loadedForRef.current = prof.id
     setProfile(prof)
     setUser(data.user)
+
+    addLog('info', 'Admin logged in', `Email: ${email} | Role: ${prof.role}`)
+
     return { data }
   }
 
   const signOut = async () => {
+
+    if (user) addLog('info', 'Admin logged out', `ID: ${user.id}`)
+
     await supabaseAuth.auth.signOut()
     setUser(null)
     setProfile(null)

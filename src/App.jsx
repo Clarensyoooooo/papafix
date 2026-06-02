@@ -2,7 +2,7 @@ import { useState } from 'react'
 import {
   LayoutDashboard, Users, CalendarCheck, MapPin, Clock,
   Navigation, Database, ChevronRight, LogOut, Sun, Moon, Wrench,
-  ScrollText, Settings as SettingsIcon, UserCircle, Map
+  ScrollText, Settings as SettingsIcon, UserCircle, Map, BarChart2
 } from 'lucide-react'
 import './index.css'
 import { AuthProvider, useAuth } from './AuthContext'
@@ -17,11 +17,13 @@ import LiveMap from './LiveMap'
 import Logs from './Logs'
 import Settings from './Settings'
 import AdminProfile from './AdminProfile'
+import Analytics from './Analytics'
 import { ToastContainer } from './Toast'
 import { Avatar } from './UI'
 
 const NAV = [
   { id: 'dashboard',      label: 'Overview',          icon: LayoutDashboard, section: 'General' },
+  { id: 'analytics',      label: 'Analytics',          icon: BarChart2,       section: 'General' },
   { id: 'profiles',       label: 'Profiles',           icon: Users,           section: 'Data' },
   { id: 'bookings',       label: 'Bookings',           icon: CalendarCheck,   section: 'Data' },
   { id: 'locations',      label: 'Locations',          icon: MapPin,          section: 'Data' },
@@ -35,6 +37,7 @@ const NAV = [
 
 const TITLES = {
   dashboard:      'Overview',
+  analytics:      'Analytics',
   profiles:       'Profiles',
   bookings:       'Bookings',
   locations:      'Locations',
@@ -48,6 +51,7 @@ const TITLES = {
 
 const PAGES = {
   dashboard:      Dashboard,
+  analytics:      Analytics,
   profiles:       Profiles,
   bookings:       Bookings,
   locations:      Locations,

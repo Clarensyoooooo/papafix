@@ -1,31 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Search, RefreshCw, Trash2, Download, Terminal, AlertCircle, CheckCircle, Info, AlertTriangle } from 'lucide-react'
+import { supabase } from './supabase'
 import { Spinner, Empty, Badge, Pagination, ConfirmDialog } from './UI'
 import { useToast } from './Toast'
 
 const PAGE_SIZE = 50
-const LOG_KEY   = 'pf_admin_logs'
-const MAX_LOGS  = 1000
 const LEVELS    = ['all', 'info', 'ok', 'warn', 'error']
 
 // ── Public API ──────────────────────────────────────────
-export function addLog(level, message, meta = '') {
+export async function addLog(level, message, meta = '') {
   try {
-    const logs = readLogs()
-    logs.unshift({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      ts: new Date().toISOString(),
+    await supabase.from('admin_logs').insert([{
       level,
       message,
-      meta: String(meta || '').slice(0, 300),
-    })
-    localStorage.setItem(LOG_KEY, JSON.stringify(logs.slice(0, MAX_LOGS)))
-  } catch {}
-}
-
-function readLogs() {
-  try { return JSON.parse(localStorage.getItem(LOG_KEY) || '[]') }
-  catch { return [] }
+      meta: String(meta || '').slice(0, 500),
+    }])
+  } catch (err) {
+    console.error('Failed to write log', err)
+  }
 }
 // ────────────────────────────────────────────────────────
 
@@ -38,66 +30,85 @@ const LEVEL_ICON = {
 const LEVEL_COLOR = { info: 'blue', ok: 'green', warn: 'amber', error: 'red' }
 
 export default function Logs() {
-  const [all,      setAll]      = useState([])
-  const [filtered, setFiltered] = useState([])
-  const [search,   setSearch]   = useState('')
-  const [level,    setLevel]    = useState('all')
-  const [page,     setPage]     = useState(1)
-  const [confirm,  setConfirm]  = useState(false)
+  const [rows,      setRows]      = useState([])
+  const [total,     setTotal]     = useState(0)
+  const [loading,   setLoading]   = useState(true)
+  const [search,    setSearch]    = useState('')
+  const [level,     setLevel]     = useState('all')
+  const [page,      setPage]      = useState(1)
+  const [confirm,   setConfirm]   = useState(false)
+  const [counts,    setCounts]    = useState({ info: 0, ok: 0, warn: 0, error: 0 })
+  
   const mountedRef = useRef(true)
   const toast = useToast()
 
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
 
-  const load = useCallback(() => {
-    if (mountedRef.current) setAll(readLogs())
+  // Fetch summary counts for the top chips
+  const loadCounts = useCallback(async () => {
+    const promises = LEVELS.filter(l => l !== 'all').map(async (lv) => {
+      const { count } = await supabase.from('admin_logs').select('*', { count: 'exact', head: true }).eq('level', lv)
+      return [lv, count || 0]
+    })
+    const results = await Promise.all(promises)
+    if (mountedRef.current) setCounts(Object.fromEntries(results))
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const load = useCallback(async () => {
+    setLoading(true)
+    let q = supabase.from('admin_logs').select('*', { count: 'exact' })
+    
+    if (level !== 'all') q = q.eq('level', level)
+    if (search) q = q.or(`message.ilike.%${search}%,meta.ilike.%${search}%`)
+    
+    q = q.order('created_at', { ascending: false })
+         .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1)
 
-  // Auto-refresh every 8s
-  useEffect(() => {
-    const t = setInterval(load, 8000)
-    return () => clearInterval(t)
-  }, [load])
-
-  useEffect(() => {
-    let f = all
-    if (level !== 'all') f = f.filter(l => l.level === level)
-    if (search) {
-      const q = search.toLowerCase()
-      f = f.filter(l =>
-        l.message.toLowerCase().includes(q) ||
-        l.meta.toLowerCase().includes(q)
-      )
+    const { data, count, error } = await q
+    if (!mountedRef.current) return
+    
+    if (!error) {
+      setRows(data || [])
+      setTotal(count || 0)
     }
-    setFiltered(f)
-    setPage(1)
-  }, [all, level, search])
+    setLoading(false)
+  }, [level, search, page])
 
-  const clearAll = () => {
-    localStorage.removeItem(LOG_KEY)
-    setAll([])
+  useEffect(() => { loadCounts() }, [loadCounts])
+  useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [level, search])
+
+  const clearAll = async () => {
+    const { error } = await supabase.from('admin_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000') // Deletes all rows
+    if (error) { toast('Failed to clear logs', 'error'); return }
+    
+    toast('Database logs cleared')
     setConfirm(false)
-    toast('Logs cleared')
+    load()
+    loadCounts()
   }
 
-  const exportLogs = () => {
+  const exportLogs = async () => {
+    toast('Generating CSV...')
+    let q = supabase.from('admin_logs').select('created_at, level, message, meta').order('created_at', { ascending: false })
+    if (level !== 'all') q = q.eq('level', level)
+    if (search) q = q.or(`message.ilike.%${search}%,meta.ilike.%${search}%`)
+
+    const { data, error } = await q
+    if (error || !data) { toast('Export failed', 'error'); return }
+
     const csv = ['timestamp,level,message,meta',
-      ...all.map(l => `"${l.ts}","${l.level}","${l.message.replace(/"/g, '""')}","${l.meta.replace(/"/g, '""')}"`)
+      ...data.map(l => `"${l.created_at}","${l.level}","${l.message.replace(/"/g, '""')}","${(l.meta || '').replace(/"/g, '""')}"`)
     ].join('\n')
+    
     const blob = new Blob([csv], { type: 'text/csv' })
     const url  = URL.createObjectURL(blob)
     const a    = document.createElement('a')
     a.href = url; a.download = `papafix-logs-${Date.now()}.csv`; a.click()
     URL.revokeObjectURL(url)
-    addLog('ok', 'Exported activity logs', `${all.length} entries`)
+    addLog('info', 'Exported database logs to CSV', `${data.length} rows exported`)
   }
 
-  const counts = { info: 0, ok: 0, warn: 0, error: 0 }
-  all.forEach(l => { if (counts[l.level] !== undefined) counts[l.level]++ })
-
-  const pageData   = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const fmt = ts => { try { return new Date(ts).toLocaleString() } catch { return ts } }
 
   return (
@@ -120,7 +131,7 @@ export default function Logs() {
           </button>
         ))}
         <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-faint)', fontFamily: 'DM Mono, monospace', alignSelf: 'center' }}>
-          {all.length} / {MAX_LOGS} entries
+          {total} total entries
         </span>
       </div>
 
@@ -128,38 +139,36 @@ export default function Logs() {
         <div className="table-header">
           <Terminal size={13} color="var(--text-muted)" />
           <span className="table-title">Activity Logs</span>
-          <span className="table-count">{filtered.length} shown</span>
+          <span className="table-count">{total} found</span>
           <div className="table-spacer" />
           <div className="search-wrap">
             <Search className="search-icon" />
-            <input className="search-input" placeholder="Search…" value={search}
+            <input className="search-input" placeholder="Search DB..." value={search}
               onChange={e => setSearch(e.target.value)} />
           </div>
           <select className="form-select" style={{ width: 120, padding: '6px 10px' }}
             value={level} onChange={e => { setLevel(e.target.value); setPage(1) }}>
             {LEVELS.map(l => <option key={l} value={l}>{l === 'all' ? 'All levels' : l.toUpperCase()}</option>)}
           </select>
-          <button className="btn btn-ghost" onClick={load} title="Refresh"><RefreshCw size={13} /></button>
+          <button className="btn btn-ghost" onClick={() => { load(); loadCounts(); }} title="Refresh"><RefreshCw size={13} /></button>
           <button className="btn btn-ghost" onClick={exportLogs} title="Export CSV"><Download size={13} /> CSV</button>
           <button className="btn btn-danger" onClick={() => setConfirm(true)}><Trash2 size={13} /> Clear</button>
         </div>
 
-        {pageData.length === 0 ? (
-          <Empty message={all.length === 0
-            ? 'No activity logged yet — actions like saves, updates, and deletes will appear here.'
-            : 'No logs match your filter.'} />
+        {loading ? <Spinner /> : rows.length === 0 ? (
+          <Empty message="No logs found in the database." />
         ) : (
           <div>
-            {pageData.map(log => (
+            {rows.map(log => (
               <div key={log.id} className="log-entry">
-                <span className="log-time">{fmt(log.ts)}</span>
+                <span className="log-time">{fmt(log.created_at)}</span>
                 <span className={`log-level ${log.level}`} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   {LEVEL_ICON[log.level]} {log.level}
                 </span>
                 <span className="log-msg">{log.message}</span>
                 {log.meta && (
                   <span className="log-meta" title={log.meta}>
-                    {log.meta.length > 60 ? log.meta.slice(0, 60) + '…' : log.meta}
+                    {log.meta.length > 80 ? log.meta.slice(0, 80) + '…' : log.meta}
                   </span>
                 )}
               </div>
@@ -167,11 +176,11 @@ export default function Logs() {
           </div>
         )}
 
-        <Pagination page={page} total={filtered.length} pageSize={PAGE_SIZE} onChange={setPage} />
+        <Pagination page={page} total={total} pageSize={PAGE_SIZE} onChange={setPage} />
       </div>
 
       {confirm && (
-        <ConfirmDialog message="Clear all logs? This cannot be undone."
+        <ConfirmDialog message="Permanently delete ALL logs from the database? This cannot be undone."
           onConfirm={clearAll} onCancel={() => setConfirm(false)} />
       )}
     </div>
