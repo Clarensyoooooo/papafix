@@ -56,11 +56,11 @@ export default function Profiles() {
   
   const [editing,    setEditing]    = useState(null)
   const [fetchingEmail, setFetchingEmail] = useState(null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   
   const [creating,   setCreating]   = useState(false)
   const [confirm,    setConfirm]    = useState(null)
   
-  // Added password field for manual creation
   const [newUser,    setNewUser]    = useState({ email: '', password: '', full_name: '', phone: '', role: 'customer' })
   const [saving,     setSaving]     = useState(false)
   
@@ -102,7 +102,6 @@ export default function Profiles() {
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [tab, search])
 
-  // Fetches the Auth email before opening the edit modal
   const openEdit = async (row) => {
     setFetchingEmail(row.id)
     const { data, error } = await supabase.auth.admin.getUserById(row.id)
@@ -116,15 +115,50 @@ export default function Profiles() {
     setEditing({ ...row, email: data.user.email || '' })
   }
 
+  // Handle Avatar Upload directly to Supabase Storage
+  const uploadAvatar = async (event) => {
+    try {
+      setUploadingAvatar(true)
+      
+      if (!event.target.files || event.target.files.length === 0) {
+        throw new Error('You must select an image to upload.')
+      }
+
+      const file = event.target.files[0]
+      const fileExt = file.name.split('.').pop()
+      const filePath = `${editing.id}-${Math.random().toString(36).substring(7)}.${fileExt}`
+
+      // Upload to the 'avatars' bucket
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file, { upsert: true })
+
+      if (uploadError) throw uploadError
+
+      // Get the public URL for the newly uploaded image
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath)
+
+      // Update the local editing state so the user sees the new preview
+      setEditing(prev => ({ ...prev, avatar_url: publicUrl }))
+      toast('Image uploaded! Click Save to apply.', 'success')
+
+    } catch (error) {
+      toast(error.message, 'error')
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
+
   const saveEdit = async () => {
-    const { id, role, full_name, phone, phone_verified, email } = editing
+    const { id, role, full_name, phone, phone_verified, email, avatar_url } = editing
     setSaving(true)
 
-    // 1. Update Auth Email if provided
     if (email) {
       const { error: authErr } = await supabase.auth.admin.updateUserById(id, {
         email: email,
-        email_confirm: true // Auto-confirms so they don't get locked out
+        email_confirm: true
       })
       if (authErr) {
         toast(`Auth Update Error: ${authErr.message}`, 'error')
@@ -133,9 +167,9 @@ export default function Profiles() {
       }
     }
 
-    // 2. Update Public Profile
+    // Now includes avatar_url in the payload
     const { error: profErr } = await supabase.from('profiles')
-      .update({ role, full_name, phone, phone_verified, updated_at: new Date().toISOString() })
+      .update({ role, full_name, phone, phone_verified, avatar_url, updated_at: new Date().toISOString() })
       .eq('id', id)
       
     setSaving(false)
@@ -157,11 +191,10 @@ export default function Profiles() {
     
     setSaving(true)
     
-    // Create directly via Admin API with a manual password
     const { data, error } = await supabase.auth.admin.createUser({
       email,
       password,
-      email_confirm: true // Bypasses email verification requirements
+      email_confirm: true 
     })
 
     if (error) {
@@ -187,10 +220,28 @@ export default function Profiles() {
 
   const del = async (id) => {
     const row = rows.find(r => r.id === id)
-    const { error } = await supabase.from('profiles').delete().eq('id', id)
-    if (error) { toast(error.message, 'error'); addLog('error', 'Profile delete failed', error.message); return }
-    toast('Profile deleted')
-    addLog('warn', `Profile deleted: ${row?.full_name || id}`, id)
+    
+    await supabase.from('bookings').delete().eq('customer_id', id)
+    await supabase.from('locations').delete().eq('user_id', id)
+    
+    const { error: profError } = await supabase.from('profiles').delete().eq('id', id)
+    
+    if (profError) { 
+      toast(`Profile Delete Error: ${profError.message}`, 'error')
+      addLog('error', 'Profile delete failed', profError.message)
+      return 
+    }
+
+    const { error: authError } = await supabase.auth.admin.deleteUser(id)
+    
+    if (authError) {
+      toast(`Auth Delete Error: ${authError.message}`, 'error')
+      addLog('error', 'Auth account delete failed', authError.message)
+      return
+    }
+    
+    toast('User completely deleted')
+    addLog('warn', `User completely deleted: ${row?.full_name || id}`, id)
     setConfirm(null); load(); loadCounts()
   }
 
@@ -318,11 +369,29 @@ export default function Profiles() {
       {editing && (
         <Modal title="Edit Profile" onClose={() => setEditing(null)}
           footer={<>
-            <button className="btn btn-ghost" onClick={() => setEditing(null)} disabled={saving}>Cancel</button>
-            <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>
+            <button className="btn btn-ghost" onClick={() => setEditing(null)} disabled={saving || uploadingAvatar}>Cancel</button>
+            <button className="btn btn-primary" onClick={saveEdit} disabled={saving || uploadingAvatar}>
               {saving ? 'Saving...' : 'Save'}
             </button>
           </>}>
+          
+          <div className="form-group">
+            <label className="form-label">Profile Image</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <Avatar name={editing.full_name} url={editing.avatar_url} />
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={uploadAvatar} 
+                  disabled={uploadingAvatar}
+                  style={{ fontSize: 12, color: 'var(--text-muted)' }} 
+                />
+                {uploadingAvatar && <span style={{ fontSize: 11, color: 'var(--accent)' }}>Uploading to Storage...</span>}
+              </div>
+            </div>
+          </div>
+
           <div className="form-group">
             <label className="form-label">Auth ID</label>
             <input className="form-input" value={editing.id} disabled
@@ -399,7 +468,7 @@ export default function Profiles() {
 
       {confirm && (
         <ConfirmDialog
-          message="Delete this profile row? The Supabase Auth account will still exist — delete it separately from the Supabase dashboard if needed."
+          message="Completely delete this user? This will permanently remove their profile AND their Supabase Auth account, allowing their email to be used again."
           onConfirm={() => del(confirm)} onCancel={() => setConfirm(null)} />
       )}
     </div>
