@@ -28,7 +28,7 @@ export default function Login() {
       <div className="login-card">
         <div className="login-brand">
           <div className="login-logo">
-            <Wrench size={20} color="white" />
+            <Wrench size={20} color={theme === 'dark' ? '#060608' : 'white'} />
           </div>
           <div>
             <div className="login-brand-name">Papafix</div>

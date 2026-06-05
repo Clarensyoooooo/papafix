@@ -97,7 +97,7 @@ function AppShell() {
         <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : undefined }}>
           {!collapsed && (
             <>
-              <div className="logo-mark"><Wrench size={15} color="white" /></div>
+              <div className="logo-mark"><Wrench size={15} color={theme === 'dark' ? '#060608' : 'white'} /></div>
               <span className="logo-text">Papafix Admin</span>
             </>
           )}
