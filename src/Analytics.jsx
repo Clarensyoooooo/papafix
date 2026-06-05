@@ -134,9 +134,10 @@ export default function Analytics() {
   const [period,      setPeriod]      = useState('month')
   const [customStart, setCustomStart] = useState('')
   const [customEnd,   setCustomEnd]   = useState('')
-  const [drillCat,    setDrillCat]    = useState(null)
-  const [drillStatus, setDrillStatus] = useState(null)
-  const [data,        setData]        = useState(null)
+  const [drillCat,     setDrillCat]     = useState(null)
+  const [drillStatus,  setDrillStatus]  = useState(null)
+  const [drillPayment, setDrillPayment] = useState(null)
+  const [data,         setData]         = useState(null)
   const [prevData,    setPrevData]    = useState(null)
   const [loading,     setLoading]     = useState(true)
   const mountedRef = useRef(true)
@@ -148,11 +149,12 @@ export default function Analytics() {
       .select('id, service_category, issue_type, status, payment_status, estimated_fee, rating, created_at')
       .gte('created_at', new Date(s).toISOString())
       .lte('created_at', new Date(e+'T23:59:59').toISOString())
-    if (drillCat)    q = q.eq('service_category', drillCat)
-    if (drillStatus) q = q.eq('status', drillStatus)
+    if (drillCat)     q = q.eq('service_category', drillCat)
+    if (drillStatus)  q = q.eq('status', drillStatus)
+    if (drillPayment) q = q.eq('payment_status', drillPayment)
     const { data } = await q.limit(2000)
     return data || []
-  }, [drillCat, drillStatus])
+  }, [drillCat, drillStatus, drillPayment])
 
   const prevRange = useCallback((s, e) => {
     const ms   = new Date(s).getTime()
@@ -246,11 +248,12 @@ export default function Analytics() {
   }
 
   const toggleDrill = (type, val) => {
-    if (type === 'cat')    setDrillCat   (v => v===val ? null : val)
-    if (type === 'status') setDrillStatus(v => v===val ? null : val)
+    if (type === 'cat')     setDrillCat    (v => v===val ? null : val)
+    if (type === 'status')  setDrillStatus (v => v===val ? null : val)
+    if (type === 'payment') setDrillPayment(v => v===val ? null : val)
   }
 
-  const anyDrill = drillCat || drillStatus
+  const anyDrill = drillCat || drillStatus || drillPayment
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
@@ -281,14 +284,24 @@ export default function Analytics() {
               onChange={e=>setCustomEnd(e.target.value)} />
           </div>
         </>}
+        <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+          <label style={{ fontSize:10, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Payment</label>
+          <select className="form-select" style={{ width:130, padding:'6px 10px' }} value={drillPayment||''} onChange={e=>setDrillPayment(e.target.value||null)}>
+            <option value="">All payments</option>
+            <option value="paid">Paid</option>
+            <option value="pending">Pending</option>
+            <option value="failed">Failed</option>
+          </select>
+        </div>
         <button className="btn btn-primary" onClick={load} style={{ alignSelf:'flex-end' }}>Apply</button>
         <div style={{ flex:1 }} />
         {anyDrill && (
           <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
             <span style={{ fontSize:11, color:'var(--text-muted)', fontWeight:600 }}>Filters:</span>
-            {drillCat    && <DrillTag label={`Category: ${drillCat}`}    onRemove={()=>setDrillCat(null)} />}
-            {drillStatus && <DrillTag label={`Status: ${drillStatus}`}   onRemove={()=>setDrillStatus(null)} />}
-            <button onClick={()=>{ setDrillCat(null); setDrillStatus(null) }} style={{ fontSize:11, color:'var(--red)', background:'none', border:'none', cursor:'pointer', fontWeight:700 }}>Clear all</button>
+            {drillCat     && <DrillTag label={`Category: ${drillCat}`}      onRemove={()=>setDrillCat(null)} />}
+            {drillStatus  && <DrillTag label={`Status: ${drillStatus}`}     onRemove={()=>setDrillStatus(null)} />}
+            {drillPayment && <DrillTag label={`Payment: ${drillPayment}`}   onRemove={()=>setDrillPayment(null)} />}
+            <button onClick={()=>{ setDrillCat(null); setDrillStatus(null); setDrillPayment(null) }} style={{ fontSize:11, color:'var(--red)', background:'none', border:'none', cursor:'pointer', fontWeight:700 }}>Clear all</button>
           </div>
         )}
         <button className="btn btn-ghost" onClick={exportCsv} style={{ alignSelf:'flex-end' }}>

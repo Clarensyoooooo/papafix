@@ -10,6 +10,9 @@ const LEVELS    = ['all', 'info', 'ok', 'warn', 'error']
 // ── Public API ──────────────────────────────────────────
 export async function addLog(level, message, meta = '') {
   try {
+    const prefs = JSON.parse(localStorage.getItem('pf_prefs') || '{}')
+    const logActions = prefs.logActions !== undefined ? prefs.logActions : true
+    if (!logActions) return
     await supabase.from('admin_logs').insert([{
       level,
       message,

@@ -100,8 +100,10 @@ export function AuthProvider({ children }) {
 
   const isAdmin = profile?.role === 'admin'
 
+  const updateProfileCache = (updates) => setProfile(p => ({ ...p, ...updates }))
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, isAdmin, signIn, signOut, theme, toggleTheme }}>
+    <AuthContext.Provider value={{ user, profile, loading, isAdmin, signIn, signOut, theme, toggleTheme, updateProfileCache }}>
       {children}
     </AuthContext.Provider>
   )

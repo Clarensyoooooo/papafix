@@ -16,10 +16,13 @@ export function ToastContainer() {
 
   useEffect(() => {
     addToastFn = (t) => {
+      try {
+        const prefs = JSON.parse(localStorage.getItem('pf_prefs') || '{}')
+        const toastOnSave = prefs.toastOnSave !== undefined ? prefs.toastOnSave : true
+        if (!toastOnSave && t.type === 'success') return
+      } catch {}
       setToasts(prev => [...prev, t])
-      setTimeout(() => {
-        setToasts(prev => prev.filter(x => x.id !== t.id))
-      }, 3000)
+      setTimeout(() => setToasts(prev => prev.filter(x => x.id !== t.id)), 3000)
     }
     return () => { addToastFn = null }
   }, [])

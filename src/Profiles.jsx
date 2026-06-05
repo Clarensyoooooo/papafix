@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Pencil, Trash2, ShieldCheck, Info, UserPlus, Users, Wrench, UserCheck, Shield } from 'lucide-react'
+import { Search, Pencil, Trash2, ShieldCheck, Info, UserPlus, Users, Wrench, UserCheck, Shield, X, ArrowUpDown } from 'lucide-react'
 import { supabase } from './supabase'
+import { getPref } from './prefs'
 import { Spinner, Empty, Badge, Avatar, Modal, ConfirmDialog, Pagination } from './UI'
 import { useToast } from './Toast'
 import { addLog } from './Logs'
 
-const PAGE_SIZE = 15
 const ROLES = ['customer', 'technician', 'admin']
 const TABS  = [
   { key: 'all',        label: 'All',          icon: Users },
@@ -46,24 +46,27 @@ function StatCard({ icon: Icon, label, value, sub, color = 'accent' }) {
 }
 
 export default function Profiles() {
-  const [tab,        setTab]        = useState('all')
-  const [rows,       setRows]       = useState([])
-  const [total,      setTotal]      = useState(0)
-  const [counts,     setCounts]     = useState({ all: 0, customer: 0, technician: 0, admin: 0, verified: 0 })
-  const [loading,    setLoading]    = useState(true)
-  const [search,     setSearch]     = useState('')
-  const [page,       setPage]       = useState(1)
-  
-  const [editing,    setEditing]    = useState(null)
-  const [fetchingEmail, setFetchingEmail] = useState(null)
+  const PAGE_SIZE = getPref('pageSize', 15)
+  const [tab,            setTab]            = useState('all')
+  const [rows,           setRows]           = useState([])
+  const [total,          setTotal]          = useState(0)
+  const [counts,         setCounts]         = useState({ all: 0, customer: 0, technician: 0, admin: 0, verified: 0 })
+  const [loading,        setLoading]        = useState(true)
+  const [search,         setSearch]         = useState('')
+  const [verifiedFilter, setVerifiedFilter] = useState('')
+  const [sortBy,         setSortBy]         = useState('created_at')
+  const [page,           setPage]           = useState(1)
+
+  const [editing,        setEditing]        = useState(null)
+  const [fetchingEmail,  setFetchingEmail]  = useState(null)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
-  
-  const [creating,   setCreating]   = useState(false)
-  const [confirm,    setConfirm]    = useState(null)
-  
-  const [newUser,    setNewUser]    = useState({ email: '', password: '', full_name: '', phone: '', role: 'customer' })
-  const [saving,     setSaving]     = useState(false)
-  
+
+  const [creating,  setCreating]  = useState(false)
+  const [confirm,   setConfirm]   = useState(null)
+
+  const [newUser, setNewUser] = useState({ email: '', password: '', full_name: '', phone: '', role: 'customer' })
+  const [saving,  setSaving]  = useState(false)
+
   const mountedRef = useRef(true)
   const toast = useToast()
 
@@ -87,26 +90,28 @@ export default function Profiles() {
     let q = supabase
       .from('profiles')
       .select('id, full_name, role, phone, phone_verified, avatar_url, created_at', { count: 'exact' })
-    if (tab !== 'all') q = q.eq('role', tab)
-    if (search) q = q.or(`full_name.ilike.%${search}%,phone.ilike.%${search}%`)
-    q = q.order('created_at', { ascending: false }).range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1)
-    
+    if (tab !== 'all')                    q = q.eq('role', tab)
+    if (search)                           q = q.or(`full_name.ilike.%${search}%,phone.ilike.%${search}%`)
+    if (verifiedFilter === 'verified')    q = q.eq('phone_verified', true)
+    if (verifiedFilter === 'unverified')  q = q.eq('phone_verified', false)
+    q = q.order(sortBy, { ascending: sortBy === 'full_name' })
+         .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1)
+
     const { data, count, error } = await q
     if (!mountedRef.current) return
     if (!error) { setRows(data || []); setTotal(count || 0) }
     else addLog('error', 'Failed to load profiles', error.message)
     setLoading(false)
-  }, [tab, search, page])
+  }, [tab, search, verifiedFilter, sortBy, page])
 
   useEffect(() => { loadCounts() }, [loadCounts])
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [tab, search])
+  useEffect(() => { setPage(1) }, [tab, search, verifiedFilter, sortBy])
 
   const openEdit = async (row) => {
     setFetchingEmail(row.id)
     const { data, error } = await supabase.auth.admin.getUserById(row.id)
     setFetchingEmail(null)
-    
     if (error) {
       toast('Could not fetch Auth details', 'error')
       addLog('error', 'Admin API fetch failed', error.message)
@@ -115,35 +120,18 @@ export default function Profiles() {
     setEditing({ ...row, email: data.user.email || '' })
   }
 
-  // Handle Avatar Upload directly to Supabase Storage
   const uploadAvatar = async (event) => {
     try {
       setUploadingAvatar(true)
-      
-      if (!event.target.files || event.target.files.length === 0) {
-        throw new Error('You must select an image to upload.')
-      }
-
+      if (!event.target.files || event.target.files.length === 0) throw new Error('You must select an image to upload.')
       const file = event.target.files[0]
       const fileExt = file.name.split('.').pop()
       const filePath = `${editing.id}-${Math.random().toString(36).substring(7)}.${fileExt}`
-
-      // Upload to the 'avatars' bucket
-      const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, file, { upsert: true })
-
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true })
       if (uploadError) throw uploadError
-
-      // Get the public URL for the newly uploaded image
-      const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath)
-
-      // Update the local editing state so the user sees the new preview
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath)
       setEditing(prev => ({ ...prev, avatar_url: publicUrl }))
       toast('Image uploaded! Click Save to apply.', 'success')
-
     } catch (error) {
       toast(error.message, 'error')
     } finally {
@@ -154,31 +142,15 @@ export default function Profiles() {
   const saveEdit = async () => {
     const { id, role, full_name, phone, phone_verified, email, avatar_url } = editing
     setSaving(true)
-
     if (email) {
-      const { error: authErr } = await supabase.auth.admin.updateUserById(id, {
-        email: email,
-        email_confirm: true
-      })
-      if (authErr) {
-        toast(`Auth Update Error: ${authErr.message}`, 'error')
-        setSaving(false)
-        return
-      }
+      const { error: authErr } = await supabase.auth.admin.updateUserById(id, { email, email_confirm: true })
+      if (authErr) { toast(`Auth Update Error: ${authErr.message}`, 'error'); setSaving(false); return }
     }
-
-    // Now includes avatar_url in the payload
     const { error: profErr } = await supabase.from('profiles')
       .update({ role, full_name, phone, phone_verified, avatar_url, updated_at: new Date().toISOString() })
       .eq('id', id)
-      
     setSaving(false)
-    if (profErr) { 
-      toast(profErr.message, 'error')
-      addLog('error', 'Profile update failed', profErr.message)
-      return 
-    }
-    
+    if (profErr) { toast(profErr.message, 'error'); addLog('error', 'Profile update failed', profErr.message); return }
     toast('Profile & credentials updated')
     addLog('ok', `Profile updated: ${full_name}`, `role → ${role}`)
     setEditing(null); load(); loadCounts()
@@ -188,29 +160,15 @@ export default function Profiles() {
     const { email, password, full_name, phone, role } = newUser
     if (!email || !password) { toast('Email and password are required', 'error'); return }
     if (password.length < 6) { toast('Password must be at least 6 characters', 'error'); return }
-    
     setSaving(true)
-    
-    const { data, error } = await supabase.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true 
-    })
-
-    if (error) {
-      toast(error.message, 'error')
-      addLog('error', 'User creation failed', error.message)
-      setSaving(false); return
-    }
-
+    const { data, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true })
+    if (error) { toast(error.message, 'error'); addLog('error', 'User creation failed', error.message); setSaving(false); return }
     const { error: profErr } = await supabase.from('profiles').insert({
       id: data.user.id, full_name, phone, role, phone_verified: false,
       created_at: new Date().toISOString(), updated_at: new Date().toISOString()
     })
-    
     setSaving(false)
     if (profErr) { toast(profErr.message, 'error'); return }
-    
     toast(`User created: ${email}`)
     addLog('ok', `User created: ${email}`, `role: ${role}`)
     setCreating(false)
@@ -220,26 +178,12 @@ export default function Profiles() {
 
   const del = async (id) => {
     const row = rows.find(r => r.id === id)
-    
     await supabase.from('bookings').delete().eq('customer_id', id)
     await supabase.from('locations').delete().eq('user_id', id)
-    
     const { error: profError } = await supabase.from('profiles').delete().eq('id', id)
-    
-    if (profError) { 
-      toast(`Profile Delete Error: ${profError.message}`, 'error')
-      addLog('error', 'Profile delete failed', profError.message)
-      return 
-    }
-
+    if (profError) { toast(`Profile Delete Error: ${profError.message}`, 'error'); addLog('error', 'Profile delete failed', profError.message); return }
     const { error: authError } = await supabase.auth.admin.deleteUser(id)
-    
-    if (authError) {
-      toast(`Auth Delete Error: ${authError.message}`, 'error')
-      addLog('error', 'Auth account delete failed', authError.message)
-      return
-    }
-    
+    if (authError) { toast(`Auth Delete Error: ${authError.message}`, 'error'); addLog('error', 'Auth account delete failed', authError.message); return }
     toast('User completely deleted')
     addLog('warn', `User completely deleted: ${row?.full_name || id}`, id)
     setConfirm(null); load(); loadCounts()
@@ -251,17 +195,18 @@ export default function Profiles() {
   }
 
   const verifiedPct = counts.all > 0 ? Math.round((counts.verified / counts.all) * 100) : 0
+  const hasFilters = verifiedFilter || sortBy !== 'created_at'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* ── Stat cards ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(148px, 1fr))', gap: 10 }}>
-        <StatCard icon={Users}     label="All Users"    value={counts.all        ?? 0} color="blue"   sub="across all roles" />
-        <StatCard icon={UserCheck} label="Customers"    value={counts.customer   ?? 0} color="blue"   sub="registered customers" />
-        <StatCard icon={Wrench}    label="Technicians"  value={counts.technician ?? 0} color="accent" sub="field technicians" />
-        <StatCard icon={Shield}    label="Admins"       value={counts.admin      ?? 0} color="red"    sub="admin accounts" />
-        <StatCard icon={ShieldCheck} label="Verified"  value={counts.verified   ?? 0} color="green"  sub={`${verifiedPct}% of all users`} />
+        <StatCard icon={Users}       label="All Users"    value={counts.all        ?? 0} color="blue"   sub="across all roles" />
+        <StatCard icon={UserCheck}   label="Customers"    value={counts.customer   ?? 0} color="blue"   sub="registered customers" />
+        <StatCard icon={Wrench}      label="Technicians"  value={counts.technician ?? 0} color="accent" sub="field technicians" />
+        <StatCard icon={Shield}      label="Admins"       value={counts.admin      ?? 0} color="red"    sub="admin accounts" />
+        <StatCard icon={ShieldCheck} label="Verified"     value={counts.verified   ?? 0} color="green"  sub={`${verifiedPct}% of all users`} />
       </div>
 
       {/* ── Info banner ── */}
@@ -277,7 +222,7 @@ export default function Profiles() {
       </div>
 
       {/* ── Tab bar ── */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', gap: 0 }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', gap: 0, flexWrap: 'wrap' }}>
         {TABS.map(({ key, label, icon: Icon }) => {
           const active = tab === key
           const count  = key === 'all' ? counts.all : counts[key]
@@ -312,6 +257,30 @@ export default function Profiles() {
             <UserPlus size={13} /> Create User
           </button>
         </div>
+      </div>
+
+      {/* ── Secondary filter bar ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <select className="form-select" style={{ width: 160, padding: '5px 10px', fontSize: 12 }}
+          value={verifiedFilter} onChange={e => setVerifiedFilter(e.target.value)}>
+          <option value="">All verification</option>
+          <option value="verified">Verified only</option>
+          <option value="unverified">Unverified only</option>
+        </select>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <ArrowUpDown size={13} color="var(--text-muted)" />
+          <select className="form-select" style={{ width: 160, padding: '5px 10px', fontSize: 12 }}
+            value={sortBy} onChange={e => setSortBy(e.target.value)}>
+            <option value="created_at">Sort: Newest first</option>
+            <option value="full_name">Sort: A → Z (name)</option>
+          </select>
+        </div>
+        {hasFilters && (
+          <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
+            onClick={() => { setVerifiedFilter(''); setSortBy('created_at') }}>
+            <X size={11} /> Reset filters
+          </button>
+        )}
       </div>
 
       {/* ── Table ── */}
@@ -374,24 +343,17 @@ export default function Profiles() {
               {saving ? 'Saving...' : 'Save'}
             </button>
           </>}>
-          
           <div className="form-group">
             <label className="form-label">Profile Image</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
               <Avatar name={editing.full_name} url={editing.avatar_url} />
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <input 
-                  type="file" 
-                  accept="image/*" 
-                  onChange={uploadAvatar} 
-                  disabled={uploadingAvatar}
-                  style={{ fontSize: 12, color: 'var(--text-muted)' }} 
-                />
+                <input type="file" accept="image/*" onChange={uploadAvatar} disabled={uploadingAvatar}
+                  style={{ fontSize: 12, color: 'var(--text-muted)' }} />
                 {uploadingAvatar && <span style={{ fontSize: 11, color: 'var(--accent)' }}>Uploading to Storage...</span>}
               </div>
             </div>
           </div>
-
           <div className="form-group">
             <label className="form-label">Auth ID</label>
             <input className="form-input" value={editing.id} disabled

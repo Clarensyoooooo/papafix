@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import {
   LayoutDashboard, Users, CalendarCheck, MapPin, Clock,
-  Navigation, Database, ChevronRight, LogOut, Sun, Moon, Wrench,
-  ScrollText, Settings as SettingsIcon, UserCircle, Map, BarChart2
+  Navigation, Database, ChevronRight, ChevronLeft, LogOut,
+  Sun, Moon, Wrench, ScrollText, Settings as SettingsIcon,
+  UserCircle, Map, BarChart2
 } from 'lucide-react'
 import './index.css'
 import { AuthProvider, useAuth } from './AuthContext'
@@ -22,50 +23,57 @@ import { ToastContainer } from './Toast'
 import { Avatar } from './UI'
 
 const NAV = [
-  { id: 'dashboard',      label: 'Overview',          icon: LayoutDashboard, section: 'General' },
-  { id: 'analytics',      label: 'Analytics',          icon: BarChart2,       section: 'General' },
-  { id: 'profiles',       label: 'Profiles',           icon: Users,           section: 'Data' },
-  { id: 'bookings',       label: 'Bookings',           icon: CalendarCheck,   section: 'Data' },
-  { id: 'locations',      label: 'Locations',          icon: MapPin,          section: 'Data' },
-  { id: 'availability',   label: 'Availability',       icon: Clock,           section: 'Data' },
-  { id: 'live-map',       label: 'Live Map',           icon: Map,             section: 'Live' },
-  { id: 'tech-locations', label: 'Tech Locations',     icon: Navigation,      section: 'Live' },
-  { id: 'logs',           label: 'Activity Logs',      icon: ScrollText,      section: 'System' },
-  { id: 'settings',       label: 'Settings',           icon: SettingsIcon,    section: 'System' },
-  { id: 'profile',        label: 'My Profile',         icon: UserCircle,      section: 'System' },
+  { id: 'dashboard',      label: 'Overview',        icon: LayoutDashboard, section: 'General' },
+  { id: 'analytics',      label: 'Analytics',        icon: BarChart2,       section: 'General' },
+  { id: 'profiles',       label: 'Profiles',         icon: Users,           section: 'Data' },
+  { id: 'bookings',       label: 'Bookings',         icon: CalendarCheck,   section: 'Data' },
+  { id: 'locations',      label: 'Locations',        icon: MapPin,          section: 'Data' },
+  { id: 'availability',   label: 'Availability',     icon: Clock,           section: 'Data' },
+  { id: 'live-map',       label: 'Live Map',         icon: Map,             section: 'Live' },
+  { id: 'tech-locations', label: 'Tech Locations',   icon: Navigation,      section: 'Live' },
+  { id: 'logs',           label: 'Activity Logs',    icon: ScrollText,      section: 'System' },
+  { id: 'settings',       label: 'Settings',         icon: SettingsIcon,    section: 'System' },
+  { id: 'profile',        label: 'My Profile',       icon: UserCircle,      section: 'System' },
 ]
 
 const TITLES = {
-  dashboard:      'Overview',
-  analytics:      'Analytics',
-  profiles:       'Profiles',
-  bookings:       'Bookings',
-  locations:      'Locations',
-  availability:   'Availability',
-  'live-map':     'Live Map',
+  dashboard:        'Overview',
+  analytics:        'Analytics',
+  profiles:         'Profiles',
+  bookings:         'Bookings',
+  locations:        'Locations',
+  availability:     'Availability',
+  'live-map':       'Live Map',
   'tech-locations': 'Technician Locations',
-  logs:           'Activity Logs',
-  settings:       'Settings',
-  profile:        'My Profile',
+  logs:             'Activity Logs',
+  settings:         'Settings',
+  profile:          'My Profile',
 }
 
 const PAGES = {
-  dashboard:      Dashboard,
-  analytics:      Analytics,
-  profiles:       Profiles,
-  bookings:       Bookings,
-  locations:      Locations,
-  availability:   Availability,
-  'live-map':     LiveMap,
+  dashboard:        Dashboard,
+  analytics:        Analytics,
+  profiles:         Profiles,
+  bookings:         Bookings,
+  locations:        Locations,
+  availability:     Availability,
+  'live-map':       LiveMap,
   'tech-locations': TechnicianLocations,
-  logs:           Logs,
-  settings:       Settings,
-  profile:        AdminProfile,
+  logs:             Logs,
+  settings:         Settings,
+  profile:          AdminProfile,
 }
 
 function AppShell() {
   const { user, profile, loading, isAdmin, signOut, theme, toggleTheme } = useAuth()
-  const [active, setActive] = useState('dashboard')
+  const [active,    setActive]    = useState('dashboard')
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('pf-sidebar') === 'true')
+
+  const toggleSidebar = () => setCollapsed(c => {
+    const next = !c
+    localStorage.setItem('pf-sidebar', String(next))
+    return next
+  })
 
   if (loading) {
     return (
@@ -83,49 +91,74 @@ function AppShell() {
 
   return (
     <div className="layout">
-      <aside className="sidebar">
-        <div className="sidebar-logo">
-          <div className="logo-mark">
-            <Wrench size={15} color="white" />
-          </div>
-          <span className="logo-text">Papafix Admin</span>
+      <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
+
+        {/* ── Logo / collapse toggle ── */}
+        <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : undefined }}>
+          {!collapsed && (
+            <>
+              <div className="logo-mark"><Wrench size={15} color="white" /></div>
+              <span className="logo-text">Papafix Admin</span>
+            </>
+          )}
+          <button
+            className="sidebar-collapse-btn"
+            onClick={toggleSidebar}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            style={{ marginLeft: collapsed ? 0 : 'auto' }}
+          >
+            {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+          </button>
         </div>
 
+        {/* ── Nav ── */}
         <nav className="sidebar-nav">
           {sections.map(section => (
             <div key={section}>
-              <div className="nav-section-label">{section}</div>
+              {!collapsed && <div className="nav-section-label">{section}</div>}
               {NAV.filter(n => n.section === section).map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
-                  className={`nav-item ${active === id ? 'active' : ''}`}
+                  className={`nav-item${active === id ? ' active' : ''}`}
                   onClick={() => setActive(id)}
+                  title={label}
                 >
                   <Icon />
-                  {label}
+                  {!collapsed && <span>{label}</span>}
                 </button>
               ))}
             </div>
           ))}
         </nav>
 
+        {/* ── Bottom ── */}
         <div className="sidebar-bottom">
-          <button className="sidebar-user" style={{ border: 'none', cursor: 'pointer', width: '100%', background: 'none', borderRadius: 5, transition: 'background 0.1s', textAlign: 'left' }}
+          <button
+            className="sidebar-user"
+            style={{ border: 'none', cursor: 'pointer', width: '100%', background: 'none', borderRadius: 5, transition: 'background 0.1s', textAlign: 'left', justifyContent: collapsed ? 'center' : undefined }}
             onClick={() => setActive('profile')}
+            title={collapsed ? (profile?.full_name || 'My Profile') : undefined}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'none'}>
+            onMouseLeave={e => e.currentTarget.style.background = 'none'}
+          >
             <Avatar name={profile?.full_name || user.email} url={profile?.avatar_url} />
-            <div style={{ overflow: 'hidden' }}>
-              <div className="sidebar-user-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {profile?.full_name || user.email}
+            {!collapsed && (
+              <div style={{ overflow: 'hidden' }}>
+                <div className="sidebar-user-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {profile?.full_name || user.email}
+                </div>
+                <div className="sidebar-user-role">admin</div>
               </div>
-              <div className="sidebar-user-role">admin</div>
-            </div>
+            )}
           </button>
-          <button className="nav-item" onClick={signOut}
-            style={{ color: 'var(--red)' }}>
+          <button
+            className="nav-item"
+            onClick={signOut}
+            title="Sign out"
+            style={{ color: 'var(--red)', justifyContent: collapsed ? 'center' : undefined }}
+          >
             <LogOut size={14} />
-            Sign out
+            {!collapsed && 'Sign out'}
           </button>
         </div>
       </aside>

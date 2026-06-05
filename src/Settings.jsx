@@ -1,6 +1,9 @@
 import { useState } from 'react'
-import { Moon, Sun, Bell, Shield, Database, Globe, Palette, RefreshCw } from 'lucide-react'
+import { Moon, Sun, RefreshCw } from 'lucide-react'
 import { useAuth } from './AuthContext'
+import { supabase } from './supabase'
+import { ConfirmDialog } from './UI'
+import { useToast } from './Toast'
 
 function Toggle({ checked, onChange }) {
   return (
@@ -38,10 +41,12 @@ function Row({ label, sub, children }) {
 
 export default function Settings() {
   const { theme, toggleTheme } = useAuth()
+  const toast = useToast()
   const [prefs, setPrefs] = useState(() => {
     try { return JSON.parse(localStorage.getItem('pf_prefs') || '{}') }
     catch { return {} }
   })
+  const [confirmClearLogs, setConfirmClearLogs] = useState(false)
 
   const setPref = (key, val) => {
     const next = { ...prefs, [key]: val }
@@ -50,6 +55,16 @@ export default function Settings() {
   }
 
   const pref = (key, def = false) => prefs[key] !== undefined ? prefs[key] : def
+
+  const clearLogs = async () => {
+    const { error } = await supabase
+      .from('admin_logs')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000')
+    setConfirmClearLogs(false)
+    if (error) { toast('Failed to clear logs', 'error'); return }
+    toast('All activity logs deleted')
+  }
 
   return (
     <div style={{ maxWidth: 640 }}>
@@ -63,10 +78,10 @@ export default function Settings() {
       </Section>
 
       <Section title="Data & Refresh" sub="Control how data is fetched">
-        <Row label="Live map auto-refresh" sub="Refresh technician locations every 30 seconds">
+        <Row label="Live map auto-refresh" sub="Refresh technician locations every 45 seconds automatically">
           <Toggle checked={pref('liveMapRefresh', true)} onChange={v => setPref('liveMapRefresh', v)} />
         </Row>
-        <Row label="Rows per page" sub="How many rows to show in tables">
+        <Row label="Rows per page" sub="How many rows to show in data tables — takes effect when you next open a tab">
           <select className="form-select" style={{ width: 90 }}
             value={pref('pageSize', 15)}
             onChange={e => setPref('pageSize', Number(e.target.value))}>
@@ -76,10 +91,10 @@ export default function Settings() {
       </Section>
 
       <Section title="Notifications" sub="Activity log preferences">
-        <Row label="Log CRUD actions" sub="Record create, update, delete actions to the activity log">
+        <Row label="Log CRUD actions" sub="Record create, update, delete actions to the activity log — disable to stop writing to admin_logs">
           <Toggle checked={pref('logActions', true)} onChange={v => setPref('logActions', v)} />
         </Row>
-        <Row label="Show toast on save" sub="Show a success notification after every save">
+        <Row label="Show toast on save" sub="Show a success notification after saves — errors always show regardless">
           <Toggle checked={pref('toastOnSave', true)} onChange={v => setPref('toastOnSave', v)} />
         </Row>
       </Section>
@@ -99,11 +114,8 @@ export default function Settings() {
       </Section>
 
       <Section title="Danger Zone" sub="Irreversible actions">
-        <Row label="Clear activity logs" sub="Wipe all locally stored activity logs">
-          <button className="btn btn-danger" onClick={() => {
-            localStorage.removeItem('pf_admin_logs')
-            alert('Logs cleared.')
-          }}>
+        <Row label="Clear activity logs" sub="Permanently delete all logs from the database — this cannot be undone">
+          <button className="btn btn-danger" onClick={() => setConfirmClearLogs(true)}>
             Clear logs
           </button>
         </Row>
@@ -116,6 +128,14 @@ export default function Settings() {
           </button>
         </Row>
       </Section>
+
+      {confirmClearLogs && (
+        <ConfirmDialog
+          message="Permanently delete ALL activity logs from the database? This cannot be undone."
+          onConfirm={clearLogs}
+          onCancel={() => setConfirmClearLogs(false)}
+        />
+      )}
     </div>
   )
 }

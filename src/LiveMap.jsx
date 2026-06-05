@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { RefreshCw, Navigation, MapPin, Clock, Wifi, WifiOff } from 'lucide-react'
 import { supabase } from './supabase'
+import { getPref } from './prefs'
 
 const MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
 // Conservative refresh — 45s avoids hammering Maps Embed API
@@ -82,6 +83,7 @@ export default function LiveMap() {
 
   useEffect(() => {
     load()
+    if (!getPref('liveMapRefresh', true)) return
     const t = setInterval(load, REFRESH_MS)
     return () => clearInterval(t)
   }, [load])

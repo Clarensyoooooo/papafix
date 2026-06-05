@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Pencil, Trash2, Eye } from 'lucide-react'
+import { Search, Pencil, Trash2, Eye, X } from 'lucide-react'
 import { supabase } from './supabase'
+import { getPref } from './prefs'
 import { Spinner, Empty, Badge, Modal, ConfirmDialog, Pagination, Stars } from './UI'
 import { useToast } from './Toast'
 import { addLog } from './Logs'
 
-const PAGE_SIZE = 15
 const STATUSES  = ['pending', 'scheduled', 'in_progress', 'completed', 'cancelled']
 const PAY_STATI = ['', 'pending', 'paid', 'failed']
 const CATS      = ['electrical', 'plumbing', 'aircon', 'appliance', 'carpentry', 'painting', 'cleaning', 'other']
@@ -65,11 +65,16 @@ function BookingDetail({ booking, onClose }) {
 }
 
 export default function Bookings() {
+  const PAGE_SIZE = getPref('pageSize', 15)
   const [rows,         setRows]         = useState([])
   const [total,        setTotal]        = useState(0)
   const [loading,      setLoading]      = useState(true)
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [catFilter,    setCatFilter]    = useState('')
+  const [payFilter,    setPayFilter]    = useState('')
+  const [dateFrom,     setDateFrom]     = useState('')
+  const [dateTo,       setDateTo]       = useState('')
   const [page,         setPage]         = useState(1)
   const [editing,      setEditing]      = useState(null)
   const [viewing,      setViewing]      = useState(null)
@@ -84,6 +89,10 @@ export default function Bookings() {
     let q = supabase.from('bookings').select(LIST_COLS, { count: 'exact' })
     if (search)       q = q.or(`issue_type.ilike.%${search}%,service_category.ilike.%${search}%`)
     if (statusFilter) q = q.eq('status', statusFilter)
+    if (catFilter)    q = q.eq('service_category', catFilter)
+    if (payFilter)    q = q.eq('payment_status', payFilter)
+    if (dateFrom)     q = q.gte('created_at', new Date(dateFrom).toISOString())
+    if (dateTo)       q = q.lte('created_at', new Date(dateTo + 'T23:59:59').toISOString())
     q = q.order('created_at', { ascending: false })
          .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1)
     const { data, count, error } = await q
@@ -91,9 +100,10 @@ export default function Bookings() {
     if (!error) { setRows(data || []); setTotal(count || 0) }
     else addLog('error', 'Failed to load bookings', error.message)
     setLoading(false)
-  }, [search, statusFilter, page])
+  }, [search, statusFilter, catFilter, payFilter, dateFrom, dateTo, page])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [search, statusFilter, catFilter, payFilter, dateFrom, dateTo])
 
   const save = async () => {
     const { id, status, service_category, issue_type, issue_description, estimated_fee, final_fee, payment_status, rating } = editing
@@ -120,6 +130,13 @@ export default function Bookings() {
     setConfirm(null); load()
   }
 
+  const clearFilters = () => {
+    setSearch(''); setStatusFilter(''); setCatFilter('')
+    setPayFilter(''); setDateFrom(''); setDateTo('')
+    setPage(1)
+  }
+  const hasFilters = search || statusFilter || catFilter || payFilter || dateFrom || dateTo
+
   const sBadge = s => {
     const m = { pending: 'amber', scheduled: 'blue', completed: 'green', cancelled: 'red', in_progress: 'accent' }
     return <Badge color={m[s] || 'muted'}>{s || '—'}</Badge>
@@ -132,6 +149,7 @@ export default function Bookings() {
   return (
     <div>
       <div className="table-wrap">
+        {/* ── Primary filter bar ── */}
         <div className="table-header">
           <span className="table-title">Bookings</span>
           <span className="table-count">{total} total</span>
@@ -144,9 +162,41 @@ export default function Bookings() {
           <select className="form-select" style={{ width: 130, padding: '6px 10px' }}
             value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }}>
             <option value="">All statuses</option>
-            {STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+            {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
           </select>
         </div>
+
+        {/* ── Secondary filter bar ── */}
+        <div style={{
+          padding: '8px 16px 10px', display: 'flex', flexWrap: 'wrap',
+          alignItems: 'center', gap: 8, borderBottom: '1px solid var(--border)',
+          background: 'var(--surface2)'
+        }}>
+          <select className="form-select" style={{ width: 140, padding: '5px 10px', fontSize: 12 }}
+            value={catFilter} onChange={e => { setCatFilter(e.target.value); setPage(1) }}>
+            <option value="">All categories</option>
+            {CATS.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+          <select className="form-select" style={{ width: 130, padding: '5px 10px', fontSize: 12 }}
+            value={payFilter} onChange={e => { setPayFilter(e.target.value); setPage(1) }}>
+            <option value="">All payments</option>
+            {PAY_STATI.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input className="form-input" type="date" value={dateFrom} style={{ width: 138, fontSize: 12, padding: '5px 8px' }}
+              onChange={e => { setDateFrom(e.target.value); setPage(1) }} />
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>
+            <input className="form-input" type="date" value={dateTo} style={{ width: 138, fontSize: 12, padding: '5px 8px' }}
+              onChange={e => { setDateTo(e.target.value); setPage(1) }} />
+          </div>
+          {hasFilters && (
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
+              onClick={clearFilters}>
+              <X size={11} /> Clear
+            </button>
+          )}
+        </div>
+
         {loading ? <Spinner /> : rows.length === 0 ? <Empty /> : (
           <table>
             <thead><tr>

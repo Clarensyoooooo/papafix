@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
   Users, CalendarDays, MapPin, Clock, Star, TrendingUp,
   AlertCircle, CheckCircle2, XCircle, Hourglass, Banknote,
-  ArrowUpRight, ArrowDownRight, Wrench, RefreshCw, CalendarClock
+  ArrowUpRight, ArrowDownRight, Wrench, RefreshCw, CalendarClock, Filter
 } from 'lucide-react'
 import { supabase } from './supabase'
 import { Spinner, Badge, Stars } from './UI'
@@ -11,9 +11,9 @@ import { Spinner, Badge, Stars } from './UI'
 const peso = n => `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
 const pct  = (a, b) => b > 0 ? (((a - b) / b) * 100).toFixed(1) : null
 
-function fmt(ts, opts = {}) {
+function fmt(ts) {
   if (!ts) return '—'
-  return new Date(ts).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', ...opts })
+  return new Date(ts).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
 }
 
 function todayRange() {
@@ -42,6 +42,25 @@ function lastMonthRange() {
     s: new Date(d.getFullYear(), d.getMonth() - 1, 1).toISOString(),
     e: new Date(d.getFullYear(), d.getMonth(), 0, 23, 59, 59).toISOString()
   }
+}
+
+// ── agg moved outside so useMemo can reference it ─────────────────────────
+function agg(arr) {
+  const statuses = {}, cats = {}
+  let rev = 0, ratings = [], paid = 0, pending = 0, cancelled = 0, completed = 0
+  for (const b of (arr || [])) {
+    statuses[b.status] = (statuses[b.status] || 0) + 1
+    cats[b.service_category] = (cats[b.service_category] || 0) + 1
+    const fee = Number(b.estimated_fee || 0)
+    if (b.payment_status === 'paid') { rev += fee; paid++ }
+    if (b.status === 'pending')   pending++
+    if (b.status === 'cancelled') cancelled++
+    if (b.status === 'completed') completed++
+    if (b.rating) ratings.push(Number(b.rating))
+  }
+  const avgRating = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null
+  const avgFee = paid > 0 ? Math.round(rev / paid) : 0
+  return { statuses, cats, rev, paid, pending, cancelled, completed, avgRating, avgFee, count: (arr || []).length }
 }
 
 // ── sub-components ─────────────────────────────────────────────────────────
@@ -92,16 +111,21 @@ function KpiCard({ label, value, sub, icon: Icon, color = 'accent', trend, trend
   )
 }
 
-function MiniBar({ label, value, max, color }) {
+function MiniBar({ label, value, max, color, total, onClick, active }) {
   const w = max > 0 ? Math.min(100, (value / max) * 100) : 0
+  const share = total > 0 ? Math.round((value / total) * 100) : 0
   return (
-    <div style={{ marginBottom: 8 }}>
+    <div style={{ marginBottom: 8, cursor: onClick ? 'pointer' : 'default', borderRadius: 4, padding: '2px 0' }}
+      onClick={onClick}>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 3 }}>
-        <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{label}</span>
-        <span style={{ color: 'var(--text)', fontWeight: 700, fontFamily: 'DM Mono, monospace' }}>{value}</span>
+        <span style={{ color: active ? color : 'var(--text-muted)', fontWeight: active ? 700 : 500 }}>{label}</span>
+        <span style={{ color: 'var(--text)', fontWeight: 700, fontFamily: 'DM Mono, monospace', display: 'flex', alignItems: 'center', gap: 5 }}>
+          {value}
+          {total > 0 && <span style={{ fontSize: 10, color: 'var(--text-faint)', fontWeight: 400 }}>{share}%</span>}
+        </span>
       </div>
       <div style={{ height: 5, background: 'var(--surface2)', borderRadius: 99, overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${w}%`, background: color, borderRadius: 99, transition: 'width 0.5s ease' }} />
+        <div style={{ height: '100%', width: `${w}%`, background: color, borderRadius: 99, transition: 'width 0.5s ease', opacity: active === false ? 0.3 : 1 }} />
       </div>
     </div>
   )
@@ -128,12 +152,19 @@ function Widget({ children, span = 1, style = {} }) {
   )
 }
 
+const CAT_COLORS = {
+  electrical: 'var(--amber)', plumbing: 'var(--blue)', aircon: 'var(--accent)',
+  appliance: 'var(--green)', carpentry: 'var(--red)', cleaning: 'var(--blue)',
+  painting: 'var(--amber)', other: 'var(--text-faint)',
+}
+
 // ── main component ─────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [data,      setData]      = useState(null)
+  const [loading,   setLoading]   = useState(true)
   const [refreshed, setRefreshed] = useState(null)
-  const [timeframe, setTimeframe] = useState('today') // NEW: State for tabs
+  const [timeframe, setTimeframe] = useState('today')
+  const [catFilter, setCatFilter] = useState('')
   const mountedRef = useRef(true)
 
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
@@ -166,36 +197,20 @@ export default function Dashboard() {
     ])
     if (!mountedRef.current) return
 
-    // aggregation helpers
-    const agg = (arr) => {
-      const statuses = {}, cats = {}
-      let rev = 0, ratings = [], paid = 0, pending = 0, cancelled = 0, completed = 0
-      for (const b of (arr || [])) {
-        statuses[b.status] = (statuses[b.status] || 0) + 1
-        cats[b.service_category] = (cats[b.service_category] || 0) + 1
-        const fee = Number(b.estimated_fee || 0)
-        if (b.payment_status === 'paid') { rev += fee; paid++ }
-        if (b.status === 'pending')   pending++
-        if (b.status === 'cancelled') cancelled++
-        if (b.status === 'completed') completed++
-        if (b.rating) ratings.push(Number(b.rating))
-      }
-      const avgRating = ratings.length ? (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1) : null
-      return { statuses, cats, rev, paid, pending, cancelled, completed, avgRating, count: (arr || []).length }
-    }
+    const rawAll = allBookings || []
+    const today    = agg(todayBookings)
+    const week     = agg(weekBookings)
+    const month    = agg(monthBookings)
+    const lastMo   = agg(lastMonthBookings)
+    const all      = agg(rawAll)
 
-    const today   = agg(todayBookings)
-    const week    = agg(weekBookings)
-    const month   = agg(monthBookings)
-    const lastMo  = agg(lastMonthBookings)
-    const all     = agg(allBookings)
-
-    const catEntries = Object.entries(all.cats).sort((a, b) => b[1] - a[1]).slice(0, 6)
+    const catEntries = Object.entries(all.cats).sort((a, b) => b[1] - a[1]).slice(0, 8)
     const maxCat = catEntries[0]?.[1] || 1
 
     setData({
       counts: { totalBookings, totalProfiles, totalCustomers, totalTechs, totalLocations, totalAvail },
       today, week, month, lastMo, all,
+      rawAll,
       catEntries, maxCat,
       recent: recent || [],
       monthTrend: pct(month.count, lastMo.count),
@@ -207,6 +222,21 @@ export default function Dashboard() {
 
   useEffect(() => { load() }, [])
 
+  // ── filtered breakdown data (client-side, no extra queries) ───────────────
+  const filteredAll = useMemo(() => {
+    if (!data) return null
+    if (!catFilter) return data.all
+    return agg((data.rawAll || []).filter(b => b.service_category === catFilter))
+  }, [data, catFilter])
+
+  const filteredCatEntries = useMemo(() => {
+    if (!data) return []
+    if (!catFilter) return data.catEntries
+    return data.catEntries.filter(([cat]) => cat === catFilter)
+  }, [data, catFilter])
+
+  const filteredMaxCat = useMemo(() => filteredCatEntries[0]?.[1] || 1, [filteredCatEntries])
+
   if (loading) return <Spinner />
   const { counts, today, week, month, lastMo, all, catEntries, maxCat, recent, monthTrend, revTrend } = data
 
@@ -215,105 +245,139 @@ export default function Dashboard() {
     return <Badge color={m[s] || 'muted'}>{s || '—'}</Badge>
   }
 
-  const CAT_COLORS = {
-    electrical: 'var(--amber)', plumbing: 'var(--blue)', aircon: 'var(--accent)',
-    appliance: 'var(--green)', carpentry: 'var(--red)', cleaning: 'var(--blue)',
-    painting: 'var(--amber)', other: 'var(--text-faint)',
-  }
+  const allCats = catEntries.map(([cat]) => cat)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      
-      {/* ── Tab Navigation & Header ────────────────────────────── */}
+
+      {/* ── Tab Navigation & Header ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div className="tabs" style={{ display: 'flex' }}>
-          <button className={`tab ${timeframe === 'today' ? 'active' : ''}`} onClick={() => setTimeframe('today')}>Today</button>
-          <button className={`tab ${timeframe === 'week' ? 'active' : ''}`} onClick={() => setTimeframe('week')}>This Week</button>
-          <button className={`tab ${timeframe === 'month' ? 'active' : ''}`} onClick={() => setTimeframe('month')}>This Month</button>
-          <button className={`tab ${timeframe === 'overall' ? 'active' : ''}`} onClick={() => setTimeframe('overall')}>Overall</button>
+          {[['today','Today'],['week','This Week'],['month','This Month'],['overall','Overall']].map(([k, l]) => (
+            <button key={k} className={`tab ${timeframe === k ? 'active' : ''}`} onClick={() => setTimeframe(k)}>{l}</button>
+          ))}
         </div>
-        
         <div style={{ flex: 1 }} />
-        
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {refreshed && <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'DM Mono, monospace' }}>Last updated: {refreshed.toLocaleTimeString()}</span>}
+          {refreshed && <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'DM Mono, monospace' }}>Updated: {refreshed.toLocaleTimeString()}</span>}
           <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 10px' }} onClick={load}>
             <RefreshCw size={12} /> Refresh
           </button>
         </div>
       </div>
 
-      {/* ── Dynamic KPI Cards ──────────────────────────────────── */}
+      {/* ── Dynamic KPI Cards ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 10 }}>
-        
-        {timeframe === 'today' && (
-          <>
-            <KpiCard icon={CalendarDays}  label="Today's Bookings" value={today.count}     color="accent" sub={`${today.completed} completed`} />
-            <KpiCard icon={Hourglass}     label="Pending Today"    value={today.pending}    color="amber" />
-            <KpiCard icon={CheckCircle2}  label="Completed Today"  value={today.completed}  color="green" />
-            <KpiCard icon={Banknote}      label="Revenue Today"    value={peso(today.rev)}  color="green" sub="from paid bookings" />
-            <KpiCard icon={Star}          label="Avg Rating Today" value={today.avgRating || '—'} color="amber" />
-            <KpiCard icon={XCircle}       label="Cancelled Today"  value={today.cancelled}  color="red" />
-          </>
-        )}
-
-        {timeframe === 'week' && (
-          <>
-            <KpiCard icon={CalendarDays} label="Week Bookings"   value={week.count}       color="blue" />
-            <KpiCard icon={CheckCircle2} label="Completed"       value={week.completed}   color="green" />
-            <KpiCard icon={Banknote}     label="Week Revenue"    value={peso(week.rev)}   color="green" />
-            <KpiCard icon={Star}         label="Avg Rating"      value={week.avgRating || '—'} color="amber" />
-          </>
-        )}
-
-        {timeframe === 'month' && (
-          <>
-            <KpiCard icon={CalendarDays}  label="Month Bookings" value={month.count}      color="accent" trend={monthTrend} trendLabel="vs last month" />
-            <KpiCard icon={CheckCircle2}  label="Completed"      value={month.completed}  color="green" sub={`Last mo: ${lastMo.completed}`} />
-            <KpiCard icon={Hourglass}     label="Pending"        value={month.pending}    color="amber" sub={`Last mo: ${lastMo.pending}`} />
-            <KpiCard icon={Banknote}      label="Month Revenue"  value={peso(month.rev)}  color="green" trend={revTrend} trendLabel="vs last month" />
-            <KpiCard icon={Star}          label="Avg Rating"     value={month.avgRating || '—'} color="amber" sub={`Last mo: ${lastMo.avgRating || '—'}`} />
-            <KpiCard icon={XCircle}       label="Cancelled"      value={month.cancelled}  color="red" sub={`Last mo: ${lastMo.cancelled}`} />
-          </>
-        )}
-
-        {timeframe === 'overall' && (
-          <>
-            <KpiCard icon={CalendarDays} label="All Bookings"    value={counts.totalBookings ?? 0} color="accent" sub={`${all.completed} completed`} />
-            <KpiCard icon={Users}        label="Total Users"     value={counts.totalProfiles ?? 0} color="blue"   sub={`${counts.totalCustomers} customers`} />
-            <KpiCard icon={Wrench}       label="Technicians"     value={counts.totalTechs ?? 0}    color="accent" />
-            <KpiCard icon={MapPin}       label="Locations"       value={counts.totalLocations ?? 0} color="green" />
-            <KpiCard icon={Clock}        label="Avail Slots"     value={counts.totalAvail ?? 0}    color="amber" />
-            <KpiCard icon={Star}         label="Overall Avg Rating" value={all.avgRating || '—'}  color="amber" />
-          </>
-        )}
+        {timeframe === 'today' && (<>
+          <KpiCard icon={CalendarDays}  label="Today's Bookings" value={today.count}     color="accent" sub={`${today.completed} completed`} />
+          <KpiCard icon={Hourglass}     label="Pending Today"    value={today.pending}    color="amber" />
+          <KpiCard icon={CheckCircle2}  label="Completed Today"  value={today.completed}  color="green" />
+          <KpiCard icon={Banknote}      label="Revenue Today"    value={peso(today.rev)}  color="green" sub="from paid bookings" />
+          <KpiCard icon={Star}          label="Avg Rating"       value={today.avgRating || '—'} color="amber" />
+          <KpiCard icon={XCircle}       label="Cancelled Today"  value={today.cancelled}  color="red" />
+        </>)}
+        {timeframe === 'week' && (<>
+          <KpiCard icon={CalendarDays} label="Week Bookings"   value={week.count}       color="blue" />
+          <KpiCard icon={CheckCircle2} label="Completed"       value={week.completed}   color="green" />
+          <KpiCard icon={Hourglass}    label="Pending"         value={week.pending}     color="amber" />
+          <KpiCard icon={Banknote}     label="Week Revenue"    value={peso(week.rev)}   color="green" />
+          <KpiCard icon={Star}         label="Avg Rating"      value={week.avgRating || '—'} color="amber" />
+          <KpiCard icon={Banknote}     label="Avg Fee / Paid"  value={peso(week.avgFee)} color="blue" sub="per paid booking" />
+        </>)}
+        {timeframe === 'month' && (<>
+          <KpiCard icon={CalendarDays}  label="Month Bookings" value={month.count}      color="accent" trend={monthTrend} trendLabel="vs last month" />
+          <KpiCard icon={CheckCircle2}  label="Completed"      value={month.completed}  color="green"  sub={`Last mo: ${lastMo.completed}`} />
+          <KpiCard icon={Hourglass}     label="Pending"        value={month.pending}    color="amber"  sub={`Last mo: ${lastMo.pending}`} />
+          <KpiCard icon={Banknote}      label="Month Revenue"  value={peso(month.rev)}  color="green"  trend={revTrend} trendLabel="vs last month" />
+          <KpiCard icon={Star}          label="Avg Rating"     value={month.avgRating || '—'} color="amber" sub={`Last mo: ${lastMo.avgRating || '—'}`} />
+          <KpiCard icon={XCircle}       label="Cancelled"      value={month.cancelled}  color="red"    sub={`Last mo: ${lastMo.cancelled}`} />
+        </>)}
+        {timeframe === 'overall' && (<>
+          <KpiCard icon={CalendarDays} label="All Bookings"      value={counts.totalBookings ?? 0} color="accent" sub={`${all.completed} completed`} />
+          <KpiCard icon={Users}        label="Total Users"        value={counts.totalProfiles ?? 0} color="blue"   sub={`${counts.totalCustomers} customers`} />
+          <KpiCard icon={Wrench}       label="Technicians"        value={counts.totalTechs ?? 0}    color="accent" />
+          <KpiCard icon={MapPin}       label="Locations"          value={counts.totalLocations ?? 0} color="green" />
+          <KpiCard icon={Clock}        label="Avail Slots"        value={counts.totalAvail ?? 0}    color="amber" />
+          <KpiCard icon={Star}         label="Overall Avg Rating" value={all.avgRating || '—'}      color="amber" />
+        </>)}
       </div>
 
-      {/* ── Bottom two-col grid (Permanent) ────────────────────── */}
+      {/* ── Category filter for breakdown widgets ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <Filter size={12} color="var(--text-muted)" />
+        <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600 }}>Filter breakdowns:</span>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setCatFilter('')}
+            style={{
+              fontSize: 11, padding: '3px 10px', borderRadius: 99, border: '1px solid var(--border)',
+              background: !catFilter ? 'var(--accent)' : 'var(--surface)',
+              color: !catFilter ? 'white' : 'var(--text-muted)',
+              cursor: 'pointer', fontWeight: 600, transition: 'all 0.12s'
+            }}>All</button>
+          {allCats.map(cat => (
+            <button key={cat} onClick={() => setCatFilter(c => c === cat ? '' : cat)}
+              style={{
+                fontSize: 11, padding: '3px 10px', borderRadius: 99, border: '1px solid var(--border)',
+                background: catFilter === cat ? CAT_COLORS[cat] || 'var(--accent)' : 'var(--surface)',
+                color: catFilter === cat ? 'white' : 'var(--text-muted)',
+                cursor: 'pointer', fontWeight: catFilter === cat ? 700 : 500, transition: 'all 0.12s'
+              }}>{cat}</button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Bottom two-col grid ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
 
         {/* Category breakdown */}
         <Widget>
-          <SectionHead title="Bookings by Category (All Time)" icon={TrendingUp} />
-          {catEntries.length === 0
+          <SectionHead
+            title={catFilter ? `Category: ${catFilter}` : 'Bookings by Category (All Time)'}
+            icon={TrendingUp}
+            action={catFilter && (
+              <button onClick={() => setCatFilter('')} style={{ fontSize: 10, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 700 }}>
+                Show all
+              </button>
+            )}
+          />
+          {filteredCatEntries.length === 0
             ? <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '20px 0', textAlign: 'center' }}>No data yet</div>
-            : catEntries.map(([cat, n]) => (
-                <MiniBar key={cat} label={cat} value={n} max={maxCat} color={CAT_COLORS[cat] || 'var(--accent)'} />
+            : filteredCatEntries.map(([cat, n]) => (
+                <MiniBar
+                  key={cat} label={cat} value={n} max={filteredMaxCat}
+                  color={CAT_COLORS[cat] || 'var(--accent)'}
+                  total={filteredAll?.count || 0}
+                  onClick={() => setCatFilter(c => c === cat ? '' : cat)}
+                  active={!catFilter || catFilter === cat}
+                />
               ))}
         </Widget>
 
         {/* Status breakdown */}
         <Widget>
-          <SectionHead title="Booking Status Breakdown" icon={CheckCircle2} />
+          <SectionHead
+            title={catFilter ? `Status Breakdown — ${catFilter}` : 'Booking Status Breakdown'}
+            icon={CheckCircle2}
+          />
           {[
-            { label: 'Completed',   val: all.statuses.completed   || 0, color: 'var(--green)' },
-            { label: 'Pending',     val: all.statuses.pending     || 0, color: 'var(--amber)' },
-            { label: 'Scheduled',   val: all.statuses.scheduled   || 0, color: 'var(--blue)'  },
-            { label: 'In Progress', val: all.statuses.in_progress || 0, color: 'var(--accent)' },
-            { label: 'Cancelled',   val: all.statuses.cancelled   || 0, color: 'var(--red)'   },
+            { label: 'Completed',   val: filteredAll?.statuses.completed   || 0, color: 'var(--green)' },
+            { label: 'Pending',     val: filteredAll?.statuses.pending     || 0, color: 'var(--amber)' },
+            { label: 'Scheduled',   val: filteredAll?.statuses.scheduled   || 0, color: 'var(--blue)'  },
+            { label: 'In Progress', val: filteredAll?.statuses.in_progress || 0, color: 'var(--accent)' },
+            { label: 'Cancelled',   val: filteredAll?.statuses.cancelled   || 0, color: 'var(--red)'   },
           ].map(({ label, val, color }) => (
-            <MiniBar key={label} label={label} value={val} max={counts.totalBookings || 1} color={color} />
+            <MiniBar key={label} label={label} value={val}
+              max={filteredAll?.count || 1}
+              color={color}
+              total={filteredAll?.count || 0}
+            />
           ))}
+          {catFilter && (
+            <div style={{ fontSize: 11, color: 'var(--text-faint)', marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+              {filteredAll?.count || 0} total · {peso(filteredAll?.rev || 0)} revenue · avg {filteredAll?.avgRating || '—'}★
+            </div>
+          )}
         </Widget>
 
         {/* Recent bookings — full width */}
@@ -333,7 +397,12 @@ export default function Dashboard() {
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                   <td style={{ padding: '10px 12px', fontSize: 11, fontFamily: 'DM Mono, monospace', color: 'var(--text-muted)' }}>{b.customer_id?.slice(0, 8)}…</td>
-                  <td style={{ padding: '10px 12px' }}><Badge color="blue">{b.service_category}</Badge></td>
+                  <td style={{ padding: '10px 12px' }}>
+                    <button onClick={() => setCatFilter(c => c === b.service_category ? '' : b.service_category)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
+                      <Badge color={catFilter === b.service_category ? 'accent' : 'blue'}>{b.service_category}</Badge>
+                    </button>
+                  </td>
                   <td style={{ padding: '10px 12px', fontSize: 12, maxWidth: 160, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.issue_type}</td>
                   <td style={{ padding: '10px 12px' }}>{sBadge(b.status)}</td>
                   <td style={{ padding: '10px 12px' }}>

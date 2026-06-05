@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Search, RefreshCw, MapPin } from 'lucide-react'
 import { supabase } from './supabase'
+import { getPref } from './prefs'
 import { Spinner, Empty, Pagination } from './UI'
 
-const PAGE_SIZE = 15
 const MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
 
 export default function TechnicianLocations() {
+  const PAGE_SIZE = getPref('pageSize', 15)
   const [rows, setRows]       = useState([])
   const [total, setTotal]     = useState(0)
   const [loading, setLoading] = useState(true)

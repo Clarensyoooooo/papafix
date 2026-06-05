@@ -1,28 +1,29 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Search, Plus, Pencil, Trash2, CheckCircle, XCircle } from 'lucide-react'
+import { Plus, Pencil, Trash2, CheckCircle, XCircle, X, CalendarDays } from 'lucide-react'
 import { supabase } from './supabase'
+import { getPref } from './prefs'
 import { Spinner, Empty, Modal, ConfirmDialog, Pagination } from './UI'
 import { useToast } from './Toast'
 import { addLog } from './Logs'
 
-const PAGE_SIZE = 15
-
 export default function Availability() {
-  const [rows,   setRows]   = useState([])
-  const [total,  setTotal]  = useState(0)
-  const [loading,setLoading]= useState(true)
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('')
-  const [page,   setPage]   = useState(1)
-  const [editing,setEditing]= useState(null)
-  const [confirm,setConfirm]= useState(null)
-  const [techs,  setTechs]  = useState([])
+  const PAGE_SIZE = getPref('pageSize', 15)
+  const [rows,       setRows]      = useState([])
+  const [total,      setTotal]     = useState(0)
+  const [loading,    setLoading]   = useState(true)
+  const [techFilter, setTechFilter] = useState('')
+  const [dateFrom,   setDateFrom]  = useState('')
+  const [dateTo,     setDateTo]    = useState('')
+  const [availFilter, setAvailFilter] = useState('')
+  const [page,       setPage]      = useState(1)
+  const [editing,    setEditing]   = useState(null)
+  const [confirm,    setConfirm]   = useState(null)
+  const [techs,      setTechs]     = useState([])
   const mountedRef = useRef(true)
   const toast = useToast()
 
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
 
-  // Load technician list once for the dropdown
   useEffect(() => {
     supabase.from('profiles')
       .select('id, full_name, phone')
@@ -36,15 +37,11 @@ export default function Availability() {
     let q = supabase
       .from('availability')
       .select('id, technician_id, date, start_time, end_time, is_available', { count: 'exact' })
-    if (search) {
-      const matchIds = techs
-        .filter(t => t.full_name?.toLowerCase().includes(search.toLowerCase()))
-        .map(t => t.id)
-      if (matchIds.length) q = q.in('technician_id', matchIds)
-      else q = q.ilike('technician_id', `%${search}%`)
-    }
-    if (filter === 'available')   q = q.eq('is_available', true)
-    if (filter === 'unavailable') q = q.eq('is_available', false)
+    if (techFilter)              q = q.eq('technician_id', techFilter)
+    if (availFilter === 'available')   q = q.eq('is_available', true)
+    if (availFilter === 'unavailable') q = q.eq('is_available', false)
+    if (dateFrom)                q = q.gte('date', dateFrom)
+    if (dateTo)                  q = q.lte('date', dateTo)
     q = q.order('date', { ascending: false })
          .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1)
     const { data, count, error } = await q
@@ -52,9 +49,10 @@ export default function Availability() {
     if (!error) { setRows(data || []); setTotal(count || 0) }
     else addLog('error', 'Failed to load availability', error.message)
     setLoading(false)
-  }, [search, filter, page, techs])
+  }, [techFilter, availFilter, dateFrom, dateTo, page])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [techFilter, availFilter, dateFrom, dateTo])
 
   const save = async () => {
     const { id, technician_id, date, start_time, end_time, is_available } = editing
@@ -66,9 +64,9 @@ export default function Availability() {
       ? await supabase.from('availability').update(payload).eq('id', id)
       : await supabase.from('availability').insert({ ...payload, id: crypto.randomUUID() })
     if (error) { toast(error.message, 'error'); addLog('error', 'Availability save failed', error.message); return }
-    const techName = techs.find(t => t.id === technician_id)?.full_name || technician_id.slice(0, 8)
+    const name = techs.find(t => t.id === technician_id)?.full_name || technician_id.slice(0, 8)
     toast(id ? 'Slot updated' : 'Slot created')
-    addLog('ok', `Availability ${id ? 'updated' : 'created'}: ${techName} on ${date}`, `${start_time}–${end_time}`)
+    addLog('ok', `Availability ${id ? 'updated' : 'created'}: ${name} on ${date}`, `${start_time}–${end_time}`)
     setEditing(null); load()
   }
 
@@ -85,8 +83,8 @@ export default function Availability() {
     const { error } = await supabase.from('availability')
       .update({ is_available: !row.is_available }).eq('id', row.id)
     if (error) { toast(error.message, 'error'); return }
-    const techName = techs.find(t => t.id === row.technician_id)?.full_name || '?'
-    addLog('info', `Availability toggled: ${techName} ${row.date}`, row.is_available ? 'available → unavailable' : 'unavailable → available')
+    const name = techs.find(t => t.id === row.technician_id)?.full_name || '?'
+    addLog('info', `Availability toggled: ${name} ${row.date}`, row.is_available ? 'available → unavailable' : 'unavailable → available')
     setRows(prev => prev.map(r => r.id === row.id ? { ...r, is_available: !row.is_available } : r))
   }
 
@@ -100,29 +98,72 @@ export default function Availability() {
     } catch { return '—' }
   }
 
+  const clearFilters = () => { setTechFilter(''); setAvailFilter(''); setDateFrom(''); setDateTo(''); setPage(1) }
+  const hasFilters = techFilter || availFilter || dateFrom || dateTo
+
+  // available/unavailable counts in current page for quick summary
+  const availCount   = rows.filter(r => r.is_available).length
+  const unavailCount = rows.filter(r => !r.is_available).length
+
   return (
     <div>
       <div className="table-wrap">
+        {/* ── Primary bar ── */}
         <div className="table-header">
           <span className="table-title">Availability</span>
           <span className="table-count">{total} slots</span>
+          {total > 0 && (
+            <span style={{ fontSize: 11, color: 'var(--text-muted)', marginLeft: 4 }}>
+              · <span style={{ color: 'var(--green)' }}>{availCount} avail</span>
+              {' / '}
+              <span style={{ color: 'var(--red)' }}>{unavailCount} unavail</span>
+              {' this page'}
+            </span>
+          )}
           <div className="table-spacer" />
-          <div className="search-wrap">
-            <Search className="search-icon" />
-            <input className="search-input" placeholder="Search technician…" value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1) }} />
-          </div>
-          <select className="form-select" style={{ width: 140, padding: '6px 10px' }}
-            value={filter} onChange={e => { setFilter(e.target.value); setPage(1) }}>
-            <option value="">All</option>
-            <option value="available">Available</option>
-            <option value="unavailable">Unavailable</option>
-          </select>
           <button className="btn btn-primary"
             onClick={() => setEditing({ technician_id: '', date: '', start_time: '08:00', end_time: '17:00', is_available: true })}>
             <Plus size={13} /> Add Slot
           </button>
         </div>
+
+        {/* ── Filter bar ── */}
+        <div style={{
+          padding: '8px 16px 10px', display: 'flex', flexWrap: 'wrap',
+          alignItems: 'center', gap: 8, borderBottom: '1px solid var(--border)',
+          background: 'var(--surface2)'
+        }}>
+          <select className="form-select" style={{ width: 180, padding: '5px 10px', fontSize: 12 }}
+            value={techFilter} onChange={e => { setTechFilter(e.target.value); setPage(1) }}>
+            <option value="">All technicians</option>
+            {techs.map(t => (
+              <option key={t.id} value={t.id}>
+                {t.full_name || 'Unnamed'}{t.phone ? ` · ${t.phone}` : ''}
+              </option>
+            ))}
+          </select>
+          <select className="form-select" style={{ width: 140, padding: '5px 10px', fontSize: 12 }}
+            value={availFilter} onChange={e => { setAvailFilter(e.target.value); setPage(1) }}>
+            <option value="">All availability</option>
+            <option value="available">Available</option>
+            <option value="unavailable">Unavailable</option>
+          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <CalendarDays size={13} color="var(--text-muted)" />
+            <input className="form-input" type="date" value={dateFrom} style={{ width: 138, fontSize: 12, padding: '5px 8px' }}
+              onChange={e => { setDateFrom(e.target.value); setPage(1) }} />
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>—</span>
+            <input className="form-input" type="date" value={dateTo} style={{ width: 138, fontSize: 12, padding: '5px 8px' }}
+              onChange={e => { setDateTo(e.target.value); setPage(1) }} />
+          </div>
+          {hasFilters && (
+            <button className="btn btn-ghost" style={{ fontSize: 11, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 4 }}
+              onClick={clearFilters}>
+              <X size={11} /> Clear
+            </button>
+          )}
+        </div>
+
         {loading ? <Spinner /> : rows.length === 0 ? <Empty /> : (
           <table>
             <thead><tr>
