@@ -1,8 +1,6 @@
 import { useState } from 'react'
-import { Moon, Sun, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { useAuth } from './AuthContext'
-import { supabase } from './supabase'
-import { ConfirmDialog } from './UI'
 import { useToast } from './Toast'
 
 function Toggle({ checked, onChange }) {
@@ -46,8 +44,6 @@ export default function Settings() {
     try { return JSON.parse(localStorage.getItem('pf_prefs') || '{}') }
     catch { return {} }
   })
-  const [confirmClearLogs, setConfirmClearLogs] = useState(false)
-
   const setPref = (key, val) => {
     const next = { ...prefs, [key]: val }
     setPrefs(next)
@@ -55,16 +51,6 @@ export default function Settings() {
   }
 
   const pref = (key, def = false) => prefs[key] !== undefined ? prefs[key] : def
-
-  const clearLogs = async () => {
-    const { error } = await supabase
-      .from('admin_logs')
-      .delete()
-      .neq('id', '00000000-0000-0000-0000-000000000000')
-    setConfirmClearLogs(false)
-    if (error) { toast('Failed to clear logs', 'error'); return }
-    toast('All activity logs deleted')
-  }
 
   return (
     <div style={{ maxWidth: 640 }}>
@@ -90,10 +76,7 @@ export default function Settings() {
         </Row>
       </Section>
 
-      <Section title="Notifications" sub="Activity log preferences">
-        <Row label="Log CRUD actions" sub="Record create, update, delete actions to the activity log — disable to stop writing to admin_logs">
-          <Toggle checked={pref('logActions', true)} onChange={v => setPref('logActions', v)} />
-        </Row>
+      <Section title="Notifications" sub="Save feedback preferences">
         <Row label="Show toast on save" sub="Show a success notification after saves — errors always show regardless">
           <Toggle checked={pref('toastOnSave', true)} onChange={v => setPref('toastOnSave', v)} />
         </Row>
@@ -105,37 +88,25 @@ export default function Settings() {
             {import.meta.env.VITE_SUPABASE_URL?.replace('https://', '').split('.')[0]}…
           </code>
         </Row>
-        <Row label="Auth" sub="Using service role key for admin data access">
-          <span className="badge badge-green">Service Role</span>
+        <Row label="Auth" sub="Anon key + your admin session — access enforced by database row-level security">
+          <span className="badge badge-green">Anon + RLS</span>
         </Row>
         <Row label="Google Maps" sub="Used for location embeds — charges apply per map load">
           <span className="badge badge-blue">Embedded API</span>
         </Row>
       </Section>
 
-      <Section title="Danger Zone" sub="Irreversible actions">
-        <Row label="Clear activity logs" sub="Permanently delete all logs from the database — this cannot be undone">
-          <button className="btn btn-danger" onClick={() => setConfirmClearLogs(true)}>
-            Clear logs
-          </button>
-        </Row>
+      <Section title="Maintenance" sub="Local preference management">
         <Row label="Reset preferences" sub="Restore all settings to their defaults">
           <button className="btn btn-ghost" onClick={() => {
             localStorage.removeItem('pf_prefs')
             setPrefs({})
+            toast('Preferences reset')
           }}>
             <RefreshCw size={12} /> Reset
           </button>
         </Row>
       </Section>
-
-      {confirmClearLogs && (
-        <ConfirmDialog
-          message="Permanently delete ALL activity logs from the database? This cannot be undone."
-          onConfirm={clearLogs}
-          onCancel={() => setConfirmClearLogs(false)}
-        />
-      )}
     </div>
   )
 }

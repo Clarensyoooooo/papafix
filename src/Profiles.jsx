@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Search, Pencil, Trash2, ShieldCheck, Info, UserPlus, Users, Wrench, UserCheck, Shield, X, ArrowUpDown } from 'lucide-react'
 import { supabase } from './supabase'
+import { adminGetUser, adminCreateUser, adminUpdateUser, adminDeleteUser } from './adminApi'
 import { getPref } from './prefs'
 import { Spinner, Empty, Badge, Avatar, Modal, ConfirmDialog, Pagination } from './UI'
 import { useToast } from './Toast'
@@ -110,7 +111,7 @@ export default function Profiles() {
 
   const openEdit = async (row) => {
     setFetchingEmail(row.id)
-    const { data, error } = await supabase.auth.admin.getUserById(row.id)
+    const { data, error } = await adminGetUser(row.id)
     setFetchingEmail(null)
     if (error) {
       toast('Could not fetch Auth details', 'error')
@@ -143,7 +144,7 @@ export default function Profiles() {
     const { id, role, full_name, phone, phone_verified, email, avatar_url } = editing
     setSaving(true)
     if (email) {
-      const { error: authErr } = await supabase.auth.admin.updateUserById(id, { email, email_confirm: true })
+      const { error: authErr } = await adminUpdateUser(id, { email })
       if (authErr) { toast(`Auth Update Error: ${authErr.message}`, 'error'); setSaving(false); return }
     }
     const { error: profErr } = await supabase.from('profiles')
@@ -157,18 +158,14 @@ export default function Profiles() {
   }
 
   const createUser = async () => {
-    const { email, password, full_name, phone, role } = newUser
+    const { email, password, role } = newUser
     if (!email || !password) { toast('Email and password are required', 'error'); return }
     if (password.length < 6) { toast('Password must be at least 6 characters', 'error'); return }
     setSaving(true)
-    const { data, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true })
-    if (error) { toast(error.message, 'error'); addLog('error', 'User creation failed', error.message); setSaving(false); return }
-    const { error: profErr } = await supabase.from('profiles').insert({
-      id: data.user.id, full_name, phone, role, phone_verified: false,
-      created_at: new Date().toISOString(), updated_at: new Date().toISOString()
-    })
+    // Creates the Auth account AND the profile row in one server-side call
+    const { error } = await adminCreateUser(newUser)
     setSaving(false)
-    if (profErr) { toast(profErr.message, 'error'); return }
+    if (error) { toast(error.message, 'error'); addLog('error', 'User creation failed', error.message); return }
     toast(`User created: ${email}`)
     addLog('ok', `User created: ${email}`, `role: ${role}`)
     setCreating(false)
@@ -178,12 +175,10 @@ export default function Profiles() {
 
   const del = async (id) => {
     const row = rows.find(r => r.id === id)
-    await supabase.from('bookings').delete().eq('customer_id', id)
-    await supabase.from('locations').delete().eq('user_id', id)
-    const { error: profError } = await supabase.from('profiles').delete().eq('id', id)
-    if (profError) { toast(`Profile Delete Error: ${profError.message}`, 'error'); addLog('error', 'Profile delete failed', profError.message); return }
-    const { error: authError } = await supabase.auth.admin.deleteUser(id)
-    if (authError) { toast(`Auth Delete Error: ${authError.message}`, 'error'); addLog('error', 'Auth account delete failed', authError.message); return }
+    // Single server-side delete — DB cascades remove the profile, bookings,
+    // locations, and availability atomically. No more manual multi-step delete.
+    const { error } = await adminDeleteUser(id)
+    if (error) { toast(`Delete failed: ${error.message}`, 'error'); addLog('error', 'User delete failed', error.message); return }
     toast('User completely deleted')
     addLog('warn', `User completely deleted: ${row?.full_name || id}`, id)
     setConfirm(null); load(); loadCounts()
@@ -217,7 +212,7 @@ export default function Profiles() {
       }}>
         <Info size={14} style={{ color: 'var(--blue)', flexShrink: 0, marginTop: 1 }} />
         <span>
-          <strong>Admin API Active:</strong> User creation directly inserts credentials into Supabase Auth without requiring magic-link verification. You can also manually update a user's email address by clicking Edit.
+          <strong>Secure Admin API:</strong> User creation and email changes run through a server-side function — accounts are created instantly without magic-link verification, and the service key never touches the browser.
         </span>
       </div>
 
