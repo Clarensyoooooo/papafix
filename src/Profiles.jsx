@@ -15,33 +15,16 @@ const TABS  = [
   { key: 'admin',      label: 'Admins',       icon: Shield },
 ]
 
-function StatCard({ icon: Icon, label, value, sub, color = 'accent' }) {
-  const cols = {
-    accent: { bg: 'var(--accent-soft)', fg: 'var(--accent)', border: 'var(--accent)' },
-    blue:   { bg: 'var(--blue-soft)',   fg: 'var(--blue)',   border: 'var(--blue)'   },
-    green:  { bg: 'var(--green-soft)',  fg: 'var(--green)',  border: 'var(--green)'  },
-    amber:  { bg: 'var(--amber-soft)',  fg: 'var(--amber)',  border: 'var(--amber)'  },
-    red:    { bg: 'var(--red-soft)',    fg: 'var(--red)',    border: 'var(--red)'    },
-  }
-  const c = cols[color] || cols.accent
+function StatCard({ icon: Icon, label, value, sub }) {
   return (
-    <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderLeft: `3px solid ${c.border}`, borderRadius: 8,
-      padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 5,
-      position: 'relative', overflow: 'hidden',
-    }}>
-      <div style={{ position: 'absolute', right: -6, bottom: -6, opacity: 0.05 }}>
-        <Icon size={60} color={c.fg} />
+    <div className="widget" style={{ padding: '13px 15px', display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <Icon size={12} /> {label}
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-        <div style={{ width: 24, height: 24, borderRadius: 5, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon size={12} color={c.fg} />
-        </div>
-        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+      <div style={{ fontSize: 21, fontWeight: 800, color: 'var(--text)', fontFamily: 'DM Mono, monospace', letterSpacing: '-0.02em' }}>
+        {value}
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--text)', fontFamily: 'DM Mono, monospace', letterSpacing: '-0.02em', lineHeight: 1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{sub}</div>}
+      <div style={{ fontSize: 10.5, color: 'var(--text-faint)', minHeight: 14 }}>{sub || '—'}</div>
     </div>
   )
 }
@@ -196,12 +179,12 @@ export default function Profiles() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* ── Stat cards ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(148px, 1fr))', gap: 10 }}>
-        <StatCard icon={Users}       label="All Users"    value={counts.all        ?? 0} color="blue"   sub="across all roles" />
-        <StatCard icon={UserCheck}   label="Customers"    value={counts.customer   ?? 0} color="blue"   sub="registered customers" />
-        <StatCard icon={Wrench}      label="Technicians"  value={counts.technician ?? 0} color="accent" sub="field technicians" />
-        <StatCard icon={Shield}      label="Admins"       value={counts.admin      ?? 0} color="red"    sub="admin accounts" />
-        <StatCard icon={ShieldCheck} label="Verified"     value={counts.verified   ?? 0} color="green"  sub={`${verifiedPct}% of all users`} />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 10 }}>
+        <StatCard icon={Users}       label="All Users"    value={counts.all        ?? 0} sub="across all roles" />
+        <StatCard icon={UserCheck}   label="Customers"    value={counts.customer   ?? 0} sub="registered customers" />
+        <StatCard icon={Wrench}      label="Technicians"  value={counts.technician ?? 0} sub="field technicians" />
+        <StatCard icon={Shield}      label="Admins"       value={counts.admin      ?? 0} sub="admin accounts" />
+        <StatCard icon={ShieldCheck} label="Verified"     value={counts.verified   ?? 0} sub={`${verifiedPct}% of all users`} />
       </div>
 
       {/* ── Info banner ── */}

@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, Users, CalendarCheck, MapPin, Clock,
   Navigation, Database, ChevronRight, ChevronLeft, LogOut,
-  Sun, Moon, Wrench, ScrollText, Settings as SettingsIcon,
+  Sun, Moon, ScrollText, Settings as SettingsIcon,
   UserCircle, Map, BarChart2
 } from 'lucide-react'
 import './index.css'
@@ -64,6 +64,26 @@ const PAGES = {
   profile:          AdminProfile,
 }
 
+function PhClock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const opts = { timeZone: 'Asia/Manila' }
+  const time = now.toLocaleTimeString('en-PH', { ...opts, hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true })
+  const day  = now.toLocaleDateString('en-PH', { ...opts, weekday: 'long' })
+  const date = now.toLocaleDateString('en-PH', { ...opts, month: 'long', day: 'numeric', year: 'numeric' })
+  return (
+    <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontFamily: 'DM Mono, monospace', fontSize: 15, fontWeight: 700, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+        <Clock size={12} color="var(--text-muted)" /> {time}
+      </div>
+      <div style={{ fontSize: 10.5, color: 'var(--text-muted)' }}>{day}, {date} · PHT</div>
+    </div>
+  )
+}
+
 function AppShell() {
   const { user, profile, loading, isAdmin, signOut, theme, toggleTheme } = useAuth()
   const [active,    setActive]    = useState('dashboard')
@@ -93,13 +113,22 @@ function AppShell() {
     <div className="layout">
       <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
 
-        {/* ── Logo / collapse toggle ── */}
-        <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : undefined }}>
+        {/* ── Current user / collapse toggle ── */}
+        <div className="sidebar-logo" style={{ justifyContent: collapsed ? 'center' : undefined, borderBottom: collapsed ? undefined : 'none' }}>
           {!collapsed && (
-            <>
-              <div className="logo-mark"><Wrench size={15} color={theme === 'dark' ? '#060608' : 'white'} /></div>
-              <span className="logo-text">Papafix Admin</span>
-            </>
+            <button
+              onClick={() => setActive('profile')}
+              title="My Profile"
+              style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, minWidth: 0, border: 'none', background: 'none', cursor: 'pointer', padding: 0, textAlign: 'left' }}
+            >
+              <Avatar name={profile?.full_name || user.email} url={profile?.avatar_url} />
+              <div style={{ overflow: 'hidden', minWidth: 0 }}>
+                <div className="sidebar-user-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {profile?.full_name || user.email}
+                </div>
+                <div className="sidebar-user-role">admin</div>
+              </div>
+            </button>
           )}
           <button
             className="sidebar-collapse-btn"
@@ -110,6 +139,9 @@ function AppShell() {
             {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
           </button>
         </div>
+
+        {/* ── Philippine time ── */}
+        {!collapsed && <PhClock />}
 
         {/* ── Nav ── */}
         <nav className="sidebar-nav">
@@ -133,24 +165,6 @@ function AppShell() {
 
         {/* ── Bottom ── */}
         <div className="sidebar-bottom">
-          <button
-            className="sidebar-user"
-            style={{ border: 'none', cursor: 'pointer', width: '100%', background: 'none', borderRadius: 5, transition: 'background 0.1s', textAlign: 'left', justifyContent: collapsed ? 'center' : undefined }}
-            onClick={() => setActive('profile')}
-            title={collapsed ? (profile?.full_name || 'My Profile') : undefined}
-            onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'none'}
-          >
-            <Avatar name={profile?.full_name || user.email} url={profile?.avatar_url} />
-            {!collapsed && (
-              <div style={{ overflow: 'hidden' }}>
-                <div className="sidebar-user-name" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {profile?.full_name || user.email}
-                </div>
-                <div className="sidebar-user-role">admin</div>
-              </div>
-            )}
-          </button>
           <button
             className="nav-item"
             onClick={signOut}
