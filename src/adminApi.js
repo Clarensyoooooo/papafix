@@ -5,23 +5,37 @@
 
 import { supabase } from './supabase'
 
+const FN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/admin-users`
+const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+// Uses plain fetch instead of supabase.functions.invoke() because the new
+// sb_publishable_ key format causes invoke() to fail attaching the auth header.
 async function call(action, userId, payload) {
-  const { data, error } = await supabase.functions.invoke('admin-users', {
-    body: { action, userId, payload },
-  })
-  if (error) {
-    // functions.invoke surfaces non-2xx as FunctionsHttpError; pull the body msg.
-    // Clone first — the body stream may already be consumed by supabase-js.
-    let msg = error.message
-    try {
-      const ctx = error.context?.clone ? error.context.clone() : error.context
-      const body = await ctx?.json()
-      if (body?.error) msg = body.error
-    } catch { /* keep generic message */ }
-    return { data: null, error: { message: msg } }
+  const { data: { session }, error: sessionErr } = await supabase.auth.getSession()
+  if (sessionErr || !session) {
+    return { data: null, error: { message: 'No active session — please sign in again.' } }
   }
-  if (data?.error) return { data: null, error: { message: data.error } }
-  return { data, error: null }
+
+  let res, body
+  try {
+    res = await fetch(FN_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': ANON_KEY,
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action, userId, payload }),
+    })
+    body = await res.json()
+  } catch (e) {
+    return { data: null, error: { message: e.message || 'Network error reaching Edge Function' } }
+  }
+
+  if (!res.ok || body?.error) {
+    return { data: null, error: { message: body?.error || `HTTP ${res.status}` } }
+  }
+  return { data: body, error: null }
 }
 
 /** was: supabase.auth.admin.getUserById(id) → { data: { user }, error } */
