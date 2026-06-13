@@ -5,10 +5,12 @@ import { getPref } from './prefs'
 import { Spinner, Empty, Modal, ConfirmDialog, Pagination } from './UI'
 import { addLog } from './Logs'
 import { useToast } from './Toast'
+import { useAuth } from './AuthContext'
 
 const MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
 
 export default function Locations() {
+  const { user } = useAuth()
   const PAGE_SIZE = getPref('pageSize', 15)
   const [rows,          setRows]          = useState([])
   const [total,         setTotal]         = useState(0)
@@ -48,7 +50,7 @@ export default function Locations() {
     const payload = { label, address, latitude: Number(latitude), longitude: Number(longitude), is_default: !!is_default }
     const { error } = id
       ? await supabase.from('locations').update(payload).eq('id', id)
-      : await supabase.from('locations').insert({ ...payload, id: crypto.randomUUID(), user_id: editing.user_id || crypto.randomUUID(), created_at: new Date().toISOString() })
+      : await supabase.from('locations').insert({ ...payload, id: crypto.randomUUID(), user_id: editing.user_id || user.id, created_at: new Date().toISOString() })
     if (error) { toast(error.message, 'error'); return }
     toast(id ? 'Location updated' : 'Location created')
     addLog('ok', `Location ${id ? 'updated' : 'created'}: ${label}`, address)
