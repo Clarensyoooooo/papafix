@@ -53,6 +53,7 @@ export default function LiveMap() {
   const [profiles,     setProfiles]     = useState({})
   const [selected,     setSelected]     = useState(null)
   const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState(null)
   const [lastRefresh,  setLastRefresh]  = useState(null)
   const [mapLoaded,    setMapLoaded]    = useState(false)   // don't load iframe until needed
   const mountedRef = useRef(true)
@@ -60,21 +61,29 @@ export default function LiveMap() {
   useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
 
   const load = useCallback(async () => {
-    const { data: locData } = await supabase
+    const { data: locData, error: locErr } = await supabase
       .from('technician_locations')
       .select('technician_id, latitude, longitude, updated_at')
       .order('updated_at', { ascending: false })
 
     if (!mountedRef.current) return
+    if (locErr) {
+      console.error('[LiveMap] technician_locations query failed:', locErr)
+      setError(locErr.message)
+      setLoading(false)
+      return
+    }
+    setError(null)
     if (!locData?.length) { setLoading(false); return }
 
     const ids = [...new Set(locData.map(l => l.technician_id))]
-    const { data: profData } = await supabase
+    const { data: profData, error: profErr } = await supabase
       .from('profiles')
       .select('id, full_name, phone')
       .in('id', ids)
 
     if (!mountedRef.current) return
+    if (profErr) console.error('[LiveMap] profiles query failed:', profErr)
     setProfiles(Object.fromEntries((profData || []).map(p => [p.id, p])))
     setLocs(locData)
     setLastRefresh(new Date())
@@ -137,7 +146,14 @@ export default function LiveMap() {
         {/* List */}
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {loading && <div style={{ padding: 24, textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>Loading…</div>}
-          {!loading && locs.length === 0 && (
+          {!loading && error && (
+            <div style={{ padding: 16, margin: 12, background: 'var(--red-soft, #fee)', borderRadius: 6, fontSize: 11 }}>
+              <div style={{ color: 'var(--red, #c00)', fontWeight: 600, marginBottom: 4 }}>Failed to load locations</div>
+              <div style={{ color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace', wordBreak: 'break-word' }}>{error}</div>
+              <div style={{ color: 'var(--text-faint)', marginTop: 6 }}>Check Supabase table & RLS policies.</div>
+            </div>
+          )}
+          {!loading && !error && locs.length === 0 && (
             <div style={{ padding: 24, textAlign: 'center', fontSize: 12 }}>
               <MapPin size={24} color="var(--text-faint)" style={{ margin: '0 auto 8px' }} />
               <div style={{ color: 'var(--text-muted)' }}>No locations tracked yet.</div>

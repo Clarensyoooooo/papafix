@@ -11,6 +11,7 @@ export default function TechnicianLocations() {
   const [rows, setRows]       = useState([])
   const [total, setTotal]     = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
   const [search, setSearch]   = useState('')
   const [page, setPage]       = useState(1)
   const [mapId, setMapId]     = useState(null)
@@ -28,7 +29,14 @@ export default function TechnicianLocations() {
          .range((page - 1) * PAGE_SIZE, page * PAGE_SIZE - 1)
     const { data, count, error } = await q
     if (!mountedRef.current) return
-    if (!error) { setRows(data || []); setTotal(count || 0) }
+    if (error) {
+      console.error('[TechnicianLocations] query failed:', error)
+      setLoadError(error.message)
+    } else {
+      setLoadError(null)
+      setRows(data || [])
+      setTotal(count || 0)
+    }
     setLoading(false)
   }, [search, page])
 
@@ -64,7 +72,15 @@ export default function TechnicianLocations() {
           </button>
         </div>
 
-        {loading ? <Spinner /> : rows.length === 0 ? <Empty message="No technician locations tracked" /> : (
+        {loading ? <Spinner /> : loadError ? (
+          <div style={{ padding: 20, margin: '12px 16px', background: 'var(--red-soft, #fee)', borderRadius: 8, fontSize: 12 }}>
+            <div style={{ color: 'var(--red, #c00)', fontWeight: 600, marginBottom: 4 }}>Failed to load technician locations</div>
+            <div style={{ color: 'var(--text-muted)', fontFamily: 'DM Mono, monospace', marginBottom: 8 }}>{loadError}</div>
+            <div style={{ color: 'var(--text-faint)', fontSize: 11 }}>
+              Check that the <code>technician_locations</code> table exists in Supabase and that your RLS policy allows admin reads.
+            </div>
+          </div>
+        ) : rows.length === 0 ? <Empty message="No technician locations tracked" /> : (
           <table>
             <thead><tr>
               <th>Status</th><th>Technician ID</th><th>Latitude</th><th>Longitude</th><th>Last Updated</th><th>Map</th>
