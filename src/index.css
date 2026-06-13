@@ -26,6 +26,8 @@
   --shadow: 0 8px 40px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.07);
   --shadow-sm: 0 2px 16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
   --modal-overlay: rgba(0,0,0,0.75);
+  --modal-bg: #16161d;
+  --modal-input-bg: rgba(255,255,255,0.06);
 }
 
 /* ── Light theme ── */
@@ -51,7 +53,9 @@
   --blue-soft: rgba(37, 99, 235, 0.1);
   --shadow: 0 8px 40px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.9);
   --shadow-sm: 0 2px 16px rgba(0,0,0,0.07), inset 0 1px 0 rgba(255,255,255,0.8);
-  --modal-overlay: rgba(0,0,0,0.35);
+  --modal-overlay: rgba(0,0,0,0.45);
+  --modal-bg: #ffffff;
+  --modal-input-bg: rgba(0,0,0,0.04);
 }
 
 /* ── Base ── */
@@ -365,12 +369,10 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
   display: flex; align-items: center; justify-content: center;
 }
 .modal {
-  background: var(--surface);
-  backdrop-filter: blur(48px) saturate(200%);
-  -webkit-backdrop-filter: blur(48px) saturate(200%);
+  background: var(--modal-bg);
   border: 1px solid var(--border);
   border-radius: 16px;
-  box-shadow: 0 24px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06);
   width: 560px; max-width: 94vw; max-height: 86vh; overflow-y: auto;
 }
 [data-theme="light"] .modal {
@@ -385,7 +387,7 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
 .form-group { display: flex; flex-direction: column; gap: 5px; }
 .form-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .form-input, .form-select, .form-textarea {
-  background: var(--surface2); border: 1px solid var(--border);
+  background: var(--modal-input-bg); border: 1px solid var(--border);
   border-radius: 8px; padding: 8px 10px;
   font-size: 12px; color: var(--text);
   font-family: 'DM Sans', sans-serif;
