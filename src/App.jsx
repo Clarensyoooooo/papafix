@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Users, CalendarCheck, MapPin, Clock,
   Navigation, Database, ChevronRight, ChevronLeft, LogOut,
   Sun, Moon, ScrollText, Settings as SettingsIcon,
-  UserCircle, Map, BarChart2
+  UserCircle, Map, BarChart2, Headphones
 } from 'lucide-react'
 import './index.css'
 import { AuthProvider, useAuth } from './AuthContext'
@@ -19,6 +19,7 @@ import Logs from './Logs'
 import Settings from './Settings'
 import AdminProfile from './AdminProfile'
 import Analytics from './Analytics'
+import SupportTickets from './SupportTickets'
 import { ToastContainer } from './Toast'
 import { Avatar } from './UI'
 
@@ -31,6 +32,7 @@ const NAV = [
   { id: 'availability',   label: 'Availability',     icon: Clock,           section: 'Data' },
   { id: 'live-map',       label: 'Live Map',         icon: Map,             section: 'Live' },
   { id: 'tech-locations', label: 'Tech Locations',   icon: Navigation,      section: 'Live' },
+  { id: 'support',        label: 'Support',           icon: Headphones,      section: 'Data' },
   { id: 'logs',           label: 'Activity Logs',    icon: ScrollText,      section: 'System' },
   { id: 'settings',       label: 'Settings',         icon: SettingsIcon,    section: 'System' },
   { id: 'profile',        label: 'My Profile',       icon: UserCircle,      section: 'System' },
@@ -45,6 +47,7 @@ const TITLES = {
   availability:     'Availability',
   'live-map':       'Live Map',
   'tech-locations': 'Technician Locations',
+  support:          'Support Tickets',
   logs:             'Activity Logs',
   settings:         'Settings',
   profile:          'My Profile',
@@ -59,6 +62,7 @@ const PAGES = {
   availability:     Availability,
   'live-map':       LiveMap,
   'tech-locations': TechnicianLocations,
+  support:          SupportTickets,
   logs:             Logs,
   settings:         Settings,
   profile:          AdminProfile,
